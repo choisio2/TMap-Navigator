@@ -1,0 +1,48 @@
+package com.aivy.navigator.data.network
+
+import com.google.gson.JsonObject
+import retrofit2.Response
+import retrofit2.http.Body
+import retrofit2.http.GET
+import retrofit2.http.Header
+import retrofit2.http.POST
+import retrofit2.http.Query
+
+interface TMapApiService {
+    // POI(장소) 통합 검색
+    @GET("tmap/pois?version=1")
+    suspend fun searchPOI(
+        @Header("appKey") appKey: String,
+        @Query("searchKeyword") keyword: String,
+        @Query("resCoordType") resCoordType: String = "WGS84GEO",
+        @Query("reqCoordType") reqCoordType: String = "WGS84GEO",
+        @Query("count") count: Int = 10 // 10개만 가져오기
+    ): Response<TMapPoiResponse>
+
+    // 보행자 경로 API 추가
+    @POST("tmap/routes/pedestrian?version=1")
+    suspend fun getPedestrianRoute(
+        @Header("appKey") appKey: String,
+        @Body request: PedestrianRouteRequest
+    ): Response<PedestrianRouteResponse>
+
+    // 주변 POI 검색 API
+    @GET("tmap/pois/search/around")
+    suspend fun searchAroundPOI(
+        @Header("appKey") appKey: String,
+        @Query("version") version: Int = 1,
+        @Query("centerLat") centerLat: String,
+        @Query("centerLon") centerLon: String,
+        @Query("reqCoordType") reqCoordType: String = "WGS84GEO",
+        @Query("resCoordType") resCoordType: String = "WGS84GEO",
+        @Query("radius") radius: String = "1",
+        @Query("count") count: Int = 5,
+        @Query("categories") categories: String? = null
+    ): retrofit2.Response<TMapPoiResponse>
+
+    @POST("https://api.openai.com/v1/chat/completions")
+    suspend fun generateNaturalGuide(
+        @Header("Authorization") bearerToken: String,
+        @Body body: JsonObject
+    ): Response<JsonObject>
+}
