@@ -55,7 +55,7 @@ dependencies {
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
 
     // Naver Maps SDK
-    implementation("com.naver.maps:map-sdk:3.17.0")
+    implementation("com.naver.maps:map-sdk:3.23.2")
 
     // Google Play Services - 위치 서비스
     implementation("com.google.android.gms:play-services-location:21.3.0")

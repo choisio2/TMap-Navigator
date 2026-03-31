@@ -22,11 +22,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 버튼 클릭 시 네이버맵으로 이동
-//        val btnNaverStart = findViewById<Button>(R.id.btnNaverMaps)
-//        btnNaverStart.setOnClickListener {
-//            val intent = Intent(this, NaverMapsActivity::class.java)
-//            startActivity(intent)
-//        }
+        val btnNaverStart = findViewById<Button>(R.id.btnNaverMaps)
+        btnNaverStart.setOnClickListener {
+            val intent = Intent(this, NaverMapsActivity::class.java)
+            startActivity(intent)
+        }
 
         // 티맵으로 이동
         val btnTmapStart = findViewById<Button>(R.id.btnTmap)

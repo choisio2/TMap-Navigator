@@ -509,7 +509,7 @@ class TmapsActivity : AppCompatActivity(),TextToSpeech.OnInitListener {
                     if (distToNext <= 30f && !announcedStepIndices.contains(nextStep.pointIndex)) {
                         announcedStepIndices.add(nextStep.pointIndex)
 
-                        // ⭐ 랜드마크 기반 안내 멘트 생성
+                        // 랜드마크 기반 안내 멘트 생성
                         val landmark = searchNearbyPOI(nextStep.coordinate)
                         val smartMessage = buildSmartMessage(nextStep, landmark)
 
@@ -570,7 +570,7 @@ class TmapsActivity : AppCompatActivity(),TextToSpeech.OnInitListener {
     // 랜드마크 + 방향을 조합한 자연어 안내 생성
     private fun buildSmartMessage(step: RouteStep, landmark: String?): String {
         val direction = when (step.turnType) {
-            11 -> "직진"   // ⭐ 11번이 일반 직진입니다!
+            // 11 -> "직진"   // ⭐ 11번이 일반 직진입니다!
             12 -> "좌회전"
             13 -> "우회전"
             14 -> "유턴"

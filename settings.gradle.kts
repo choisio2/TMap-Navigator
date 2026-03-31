@@ -16,7 +16,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://repository.map.naver.com/archive/maven") }
+        maven("https://repository.map.naver.com/archive/maven")
         maven { url = uri("https://repo.realtimescreen.com/repository/maven-public/") }
     }
 }
