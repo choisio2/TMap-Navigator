@@ -35,5 +35,12 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
 
+        // 카메라 테스트로 이동
+        val btnCamera = findViewById<Button>(R.id.btnCamera)
+        btnCamera.setOnClickListener {
+            val intent = Intent(this, CameraActivity::class.java)
+            startActivity(intent)
+        }
+
     }
 }

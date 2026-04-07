@@ -46,9 +46,6 @@
         android:text="네이버 지도 열기"
         android:textColor="@color/white"
         android:textSize="15sp"
-        app:iconGravity="textStart"
-        app:iconPadding="8dp"
-        app:iconSize="20dp"
         android:layout_marginTop="50dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -63,13 +60,25 @@
         android:text="TMap으로 길찾기"
         android:textColor="@color/white"
         android:textSize="15sp"
-        app:iconGravity="textStart"
-        app:iconPadding="8dp"
-        app:iconSize="20dp"
         android:layout_marginTop="20dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/btnNaverMaps" />
+
+
+    <Button
+        android:id="@+id/btnCamera"
+        android:layout_width="300dp"
+        android:layout_height="55dp"
+        app:backgroundTint="@null"
+        android:backgroundTint="#F49F29"
+        android:text="카메라 및 Gemini Flash 테스"
+        android:textColor="@color/white"
+        android:textSize="15sp"
+        android:layout_marginTop="20dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/btnTmap" />
 
 
 </androidx.constraintlayout.widget.ConstraintLayout>

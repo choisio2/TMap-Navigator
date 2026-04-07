@@ -16,12 +16,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AIVYNavigator">
         <activity
+            android:name=".CameraActivity"
+            android:exported="false" />
+        <activity
             android:name=".TmapsActivity"
             android:exported="true" />
 
         <meta-data
             android:name="com.naver.maps.map.NCP_KEY_ID"
-            android:value="NAVER_CLIENT_ID" />
+            android:value="s23srtgglv" />
 
         <activity
             android:name=".NaverMapsActivity"

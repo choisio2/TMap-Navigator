@@ -2,6 +2,7 @@ package com.aivy.navigator.data.network
 
 import com.aivy.navigator.data.model.GeocodeResponse
 import com.aivy.navigator.data.model.NaverDirectionResponse
+import com.aivy.navigator.data.model.NaverGeocodeResponse
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Query
@@ -13,7 +14,7 @@ interface NaverApiService {
         @Header("X-NCP-APIGW-API-KEY-ID") clientId: String,
         @Header("X-NCP-APIGW-API-KEY") clientSecret: String,
         @Query("query") query: String
-    ): GeocodeResponse
+    ): Response<NaverGeocodeResponse>
 
     // Directions 5 (자동차 길찾기) API 추가
     @GET("map-direction/v1/driving")
