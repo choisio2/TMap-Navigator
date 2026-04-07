@@ -45,6 +45,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 import android.graphics.Typeface
 import com.skt.Tmap.TMapCircle
+import androidx.activity.result.contract.ActivityResultContracts
 
 class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
@@ -99,6 +100,11 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         tts = TextToSpeech(this, this)
 
+        locationPermissionRequest.launch(arrayOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ))
+
         setupTMapView()
         setupSearch()
         setupRouteButton()
@@ -122,6 +128,18 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale.KOREAN; tts.setSpeechRate(0.85f);tts.setPitch(1.0f); isTtsReady = true
+        }
+    }
+
+    private val locationPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+            // 권한이 허용되면 현재 위치를 가져옵니다!
+            fetchCurrentLocation()
+        } else {
+            Toast.makeText(this, "위치 권한이 거부되어 현재 위치를 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -261,17 +279,26 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun setDestinationMarker(item: PoiItem) {
         val lat = item.noorLat.toDoubleOrNull() ?: return
         val lon = item.noorLon.toDoubleOrNull() ?: return
-        destinationPoint = TMapPoint(lat, lon); destinationName = item.name
+        destinationPoint = TMapPoint(lat, lon)
+        destinationName = item.name
 
         tMapView.removeAllTMapPolyLine()
         binding.cardRouteInfo.visibility = View.GONE
         tMapView.removeMarkerItem("destination")
         tMapView.removeMarkerItem("waypoint")
 
-        tMapView.addMarkerItem("destination", TMapMarkerItem().apply {
-            tMapPoint = destinationPoint; name = item.name
-        })
-        tMapView.setCenterPoint(lon, lat); tMapView.zoomLevel = 15; tMapView.postInvalidate()
+        val marker = TMapMarkerItem().apply {
+            tMapPoint = destinationPoint
+            name = item.name
+            icon = getBitmapFromVectorDrawable(R.drawable.ic_location_on)
+            setPosition(0.5f, 1.0f)
+        }
+
+        tMapView.addMarkerItem("destination", marker)
+        tMapView.setCenterPoint(lon, lat)
+        tMapView.zoomLevel = 15
+        tMapView.postInvalidate()
+
         binding.etSearch.setText(item.name)
         binding.fabRoute.visibility = View.VISIBLE
         hideKeyboard()
@@ -497,10 +524,11 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         && !announcedStepIndices.contains(next.pointIndex)) {
                         announcedStepIndices.add(next.pointIndex)
 
-                        // 주변 랜드마크 검색 및 안내 멘트 생성
-                        val msg = buildSmartMessage(next, searchNearbyPOI(next.coordinate))
-                        binding.tvNavInstruction.text = msg
-                        speakTTSWithCooldown(msg)
+                        val cleanMessage = next.description
+
+                        binding.tvNavInstruction.text = cleanMessage // 화면에 깔끔하게 표시
+                        speakTTSWithCooldown(cleanMessage)           // 음성으로 읽어주기
+
                         upcoming.removeAt(0)
                     }
                 }
@@ -542,7 +570,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     /** 경유지 추가 버튼 클릭 시 호출 */
     private fun onAddWaypointClicked() {
         val et = EditText(this).apply {
-            hint = "경유지 검색 (예: 편의점, 카페)"
+            hint = "경유지 검색"
             setPadding(60, 40, 60, 40)
         }
         AlertDialog.Builder(this)
@@ -564,13 +592,14 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         waypointName = item.name
 
         // 지도에 경유지 마커 표시
-        tMapView.removeMarkerItem("waypoint")
-        tMapView.addMarkerItem("waypoint", TMapMarkerItem().apply {
+        val marker = TMapMarkerItem().apply {
             tMapPoint = waypointPoint
             name = "경유지: ${item.name}"
-        })
+            icon = getBitmapFromVectorDrawable(R.drawable.ic_location_on)
+            setPosition(0.5f, 1.0f)
+        }
+        tMapView.addMarkerItem("waypoint", marker)
 
-        // UI 업데이트 (XML에 해당 ID들이 있어야 함)
         binding.tvWaypointInfo.text = "경유지: ${item.name}"
         binding.btnAddWaypoint.visibility = View.GONE
         binding.btnRemoveWaypoint.visibility = View.VISIBLE
