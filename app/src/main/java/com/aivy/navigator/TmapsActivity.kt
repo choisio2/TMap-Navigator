@@ -36,6 +36,15 @@ import java.util.Locale
 import android.app.AlertDialog
 import com.aivy.navigator.databinding.ActivityTmapsBinding
 import com.aivy.navigator.data.model.RouteFeature
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.core.content.ContextCompat
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import android.widget.ArrayAdapter
+import android.view.ViewGroup
+import android.widget.TextView
+import android.graphics.Typeface
+import com.skt.Tmap.TMapCircle
 
 class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
@@ -116,6 +125,20 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    // 내 위치 마커 수정
+    private fun getBitmapFromVectorDrawable(drawableId: Int): Bitmap {
+        val drawable = ContextCompat.getDrawable(this, drawableId)!!
+        val bitmap = Bitmap.createBitmap(
+            drawable.intrinsicWidth,
+            drawable.intrinsicHeight,
+            Bitmap.Config.ARGB_8888
+        )
+        val canvas = Canvas(bitmap)
+        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.draw(canvas)
+        return bitmap
+    }
+
     // ============================================================
     //  3. TMap 지도
     // ============================================================
@@ -149,13 +172,21 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
     }
 
-    /** 내 위치 마커만 갱신 — 마커ID "myLocation" 고정 */
+
     private fun updateMyLocationMarker() {
         currentLocation?.let {
             tMapView.removeMarkerItem("myLocation")
-            tMapView.addMarkerItem("myLocation", TMapMarkerItem().apply {
-                tMapPoint = it; name = "내 위치"
-            })
+
+            val marker = TMapMarkerItem().apply {
+                tMapPoint = it
+                name = "내 위치"
+                // 커스텀 동그라미 마커 적용
+                icon = getBitmapFromVectorDrawable(R.drawable.ic_my_location_dot)
+                // 중심점을 이미지 중앙(0.5, 0.5)으로 설정
+                setPosition(0.5f, 0.5f)
+            }
+
+            tMapView.addMarkerItem("myLocation", marker)
             tMapView.postInvalidate()
         }
     }
@@ -182,12 +213,42 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 withContext(Dispatchers.Main) {
                     val list = resp.body()?.searchPoiInfo?.pois?.poiList
                     if (resp.isSuccessful && !list.isNullOrEmpty()) {
-                        val names = list.map { "${it.name}\n${it.getFullAddress()}" }.toTypedArray()
-                        AlertDialog.Builder(this@TmapsActivity)
-                            .setTitle("검색 결과")
-                            .setItems(names) { _, i -> onSelected(list[i]) }
-                            .setNegativeButton("취소", null).show()
-                    } else Toast.makeText(this@TmapsActivity, "검색 결과가 없습니다", Toast.LENGTH_SHORT).show()
+
+                        // 예쁜 리스트를 만들어주는 커스텀 어댑터
+                        val adapter = object : ArrayAdapter<PoiItem>(this@TmapsActivity, android.R.layout.simple_list_item_2, android.R.id.text1, list) {
+                            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                                val view = super.getView(position, convertView, parent)
+                                val text1 = view.findViewById<TextView>(android.R.id.text1)
+                                val text2 = view.findViewById<TextView>(android.R.id.text2)
+                                val item = getItem(position)
+
+                                // 장소 이름 (크게, 굵게)
+                                text1.text = item?.name
+                                text1.textSize = 16f
+                                text1.setTypeface(null, Typeface.BOLD)
+                                text1.setTextColor(Color.parseColor("#212121"))
+
+                                // 장소 주소 (작게, 회색)
+                                text2.text = item?.getFullAddress()
+                                text2.textSize = 13f
+                                text2.setTextColor(Color.parseColor("#757575"))
+
+                                // 항목별 위아래 여백을 주어 쾌적하게
+                                view.setPadding(32, 24, 32, 24)
+                                return view
+                            }
+                        }
+
+                        // Material 스타일의 다이얼로그 띄우기
+                        MaterialAlertDialogBuilder(this@TmapsActivity)
+                            .setTitle("어느 곳으로 갈까요?")
+                            .setAdapter(adapter) { _, i -> onSelected(list[i]) }
+                            .setNegativeButton("취소", null)
+                            .show()
+
+                    } else {
+                        Toast.makeText(this@TmapsActivity, "검색 결과가 없습니다", Toast.LENGTH_SHORT).show()
+                    }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -294,7 +355,12 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tMapView.removeAllTMapPolyLine()
         routeSteps.clear(); allRoutePoints.clear()
 
-        val polyLine = TMapPolyLine().apply { lineColor = Color.BLUE; lineWidth = 15f }
+        val polyLine = TMapPolyLine().apply {
+            lineColor = Color.parseColor("#215CF3") // 산뜻한 머티리얼 블루
+            lineWidth = 11f                          // 15f에서 8f로 얇고 깔끔하게
+            outLineColor = Color.parseColor("#1976D2") // 약간 짙은 테두리 색상
+            outLineWidth = 2f                       // 테두리 두께 추가로 입체감 부여
+        }
         var totalTime = 0; var totalDistance = 0
 
         features.forEach { f ->

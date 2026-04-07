@@ -151,15 +151,16 @@
                     android:layout_weight="1"
                     android:text="경유지 없음"
                     android:textColor="#757575"
-                    android:textSize="14sp" />
+                    android:textSize="17sp" />
 
                 <!-- 경유지 추가 버튼 -->
                 <Button
                     android:id="@+id/btnAddWaypoint"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:text="+ 경유지"
+                    android:layout_height="40dp"
+                    android:text="+ 경유지 "
+                    android:paddingHorizontal="30dp"
                     android:textSize="12sp"
                     app:strokeColor="#4CAF50"
                     android:textColor="#4CAF50" />
