@@ -1,39 +1,24 @@
 package com.aivy.navigator
 
-import android.content.Intent
 import android.os.Bundle
-import android.widget.Button
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import kotlin.jvm.java
+import com.aivy.navigator.ui.AivyApp
+import com.aivy.navigator.ui.navigation.AndroidMapBridgeAction
+import com.aivy.navigator.ui.theme.AivyTheme
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContentView(R.layout.activity_main)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
+        setContent {
+            AivyTheme {
+                AivyApp(
+                    mapBridgeAction = AndroidMapBridgeAction(this),
+                )
+            }
         }
-
-        // 버튼 클릭 시 네이버맵으로 이동
-        val btnNaverStart = findViewById<Button>(R.id.btnNaverMaps)
-        btnNaverStart.setOnClickListener {
-            val intent = Intent(this, NaverMapsActivity::class.java)
-            startActivity(intent)
-        }
-
-        // 티맵으로 이동
-        val btnTmapStart = findViewById<Button>(R.id.btnTmap)
-        btnTmapStart.setOnClickListener {
-            val intent = Intent(this, TmapsActivity::class.java)
-            startActivity(intent)
-        }
-
     }
 }
