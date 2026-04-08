@@ -46,6 +46,16 @@ import android.widget.TextView
 import android.graphics.Typeface
 import com.skt.Tmap.TMapCircle
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.core.Preview
+import android.graphics.Matrix
+import android.graphics.BitmapFactory
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
@@ -78,13 +88,19 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     // -- TTS --
     private lateinit var tts: TextToSpeech
-    private var isTtsReady = false  // TTS 초기화 완료 플래그
+    private var isTtsReady = false
 
     // -- 안내 제어 --
     private var lastTTSTime = 0L
     private val TTS_COOLDOWN = 2000L
     private val announcedStepIndices = mutableSetOf<Int>()
-    private val MOCK_SPEED_MS = 500L
+    private val MOCK_SPEED_MS = 2000L
+
+    // -- Camera --
+    private var imageCapture: ImageCapture? = null
+    private lateinit var cameraExecutor: ExecutorService
+    private var currentStepForAI: RouteStep? = null
+    private var autoCaptureJob: Job? = null
 
     companion object { private const val TAG = "TMAP_debug" }
 
@@ -105,16 +121,23 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             Manifest.permission.ACCESS_COARSE_LOCATION
         ))
 
-        setupTMapView()
-        setupSearch()
-        setupRouteButton()
-        setupLocationCallback()
-
         binding.btnBack.setOnClickListener { finish() }
         binding.btnCancelRoutePreview.setOnClickListener { cancelRoutePreview() }
 
         binding.btnAddWaypoint.setOnClickListener { onAddWaypointClicked() }
         binding.btnRemoveWaypoint.setOnClickListener { removeWaypointAndReroute() }
+
+        cameraExecutor = Executors.newSingleThreadExecutor()
+
+        // 카메라 사진 분석
+        binding.btnManualCapture.setOnClickListener { takePhotoAndSendToGemini() }
+        binding.btnTestGallery.setOnClickListener { openGalleryForAiTest() }
+        binding.fabAiGuide.setOnClickListener { startAiCameraFlow() }
+
+        setupTMapView()
+        setupSearch()
+        setupRouteButton()
+        setupLocationCallback()
     }
 
     override fun onDestroy() {
@@ -122,6 +145,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (isNavigating && this::locationCallback.isInitialized) {
             try { fusedLocationClient.removeLocationUpdates(locationCallback) } catch (_: Exception) {}
         }
+        cameraExecutor.shutdown()
         super.onDestroy()
     }
 
@@ -136,8 +160,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     ) { permissions ->
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            // 권한이 허용되면 현재 위치를 가져옵니다!
-            fetchCurrentLocation()
+            fetchCurrentLocation() // 위치 가져오기 
         } else {
             Toast.makeText(this, "위치 권한이 거부되어 현재 위치를 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
         }
@@ -157,6 +180,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return bitmap
     }
 
+    
     // ============================================================
     //  3. TMap 지도
     // ============================================================
@@ -170,6 +194,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         })
         binding.tmapLayout.addView(tMapView)
     }
+    
 
     // ============================================================
     //  4. 현재 위치
@@ -200,7 +225,6 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 name = "내 위치"
                 // 커스텀 동그라미 마커 적용
                 icon = getBitmapFromVectorDrawable(R.drawable.ic_my_location_dot)
-                // 중심점을 이미지 중앙(0.5, 0.5)으로 설정
                 setPosition(0.5f, 0.5f)
             }
 
@@ -208,6 +232,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             tMapView.postInvalidate()
         }
     }
+    
 
     // ============================================================
     //  5. 목적지 검색
@@ -231,8 +256,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 withContext(Dispatchers.Main) {
                     val list = resp.body()?.searchPoiInfo?.pois?.poiList
                     if (resp.isSuccessful && !list.isNullOrEmpty()) {
-
-                        // 예쁜 리스트를 만들어주는 커스텀 어댑터
+                        // 목적지 리스트 UI 꾸미기
                         val adapter = object : ArrayAdapter<PoiItem>(this@TmapsActivity, android.R.layout.simple_list_item_2, android.R.id.text1, list) {
                             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                                 val view = super.getView(position, convertView, parent)
@@ -251,7 +275,6 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                                 text2.textSize = 13f
                                 text2.setTextColor(Color.parseColor("#757575"))
 
-                                // 항목별 위아래 여백을 주어 쾌적하게
                                 view.setPadding(32, 24, 32, 24)
                                 return view
                             }
@@ -303,6 +326,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         binding.fabRoute.visibility = View.VISIBLE
         hideKeyboard()
     }
+
 
     // ============================================================
     //  6. 경로 탐색 & 그리기
@@ -383,10 +407,10 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         routeSteps.clear(); allRoutePoints.clear()
 
         val polyLine = TMapPolyLine().apply {
-            lineColor = Color.parseColor("#215CF3") // 산뜻한 머티리얼 블루
-            lineWidth = 11f                          // 15f에서 8f로 얇고 깔끔하게
-            outLineColor = Color.parseColor("#1976D2") // 약간 짙은 테두리 색상
-            outLineWidth = 2f                       // 테두리 두께 추가로 입체감 부여
+            lineColor = Color.parseColor("#215CF3")
+            lineWidth = 11f
+            outLineColor = Color.parseColor("#1976D2")
+            outLineWidth = 2f
         }
         var totalTime = 0; var totalDistance = 0
 
@@ -423,18 +447,24 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         binding.searchCard.visibility = View.GONE
     }
 
+
     // ============================================================
     //  7. 내비게이션 시작 / 종료
     // ============================================================
 
     private fun startNavigation() {
+        isMockMode = binding.switchMockMode.isChecked
+
         isNavigating = true
         announcedStepIndices.clear()
         binding.searchCard.visibility = View.GONE
         binding.cardRouteInfo.visibility = View.GONE
         binding.navTopCard.visibility = View.VISIBLE
         binding.navBottomCard.visibility = View.VISIBLE
-        speakTTS("경로 안내를 시작합니다.")
+
+        val modeText = if (isMockMode) "가상 주행으로" else "실제 주행으로"
+        speakTTS("$modeText 경로 안내를 시작합니다.")
+
         if (isMockMode) startMockNavigation() else startRealNavigation()
     }
 
@@ -447,7 +477,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun stopNavigation() {
-        // 가상주행 루프 즉시 탈출
+        // 가상주행 루프 탈출
         isNavigating = false
 
         // GPS 콜백 해제
@@ -463,7 +493,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tMapView.removeMarkerItem("destination")
         tMapView.removeMarkerItem("waypoint")
 
-        // 5) 데이터 초기화 (isWaypointMode 삭제됨)
+        // 데이터 초기화 (isWaypointMode 삭제됨)
         allRoutePoints.clear()
         routeSteps.clear()
         announcedStepIndices.clear()
@@ -474,6 +504,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         binding.tvWaypointInfo.text = "경유지 없음"
         binding.btnAddWaypoint.visibility = View.VISIBLE
         binding.btnRemoveWaypoint.visibility = View.GONE
+        binding.etSearch.text.clear()
 
         binding.navTopCard.visibility = View.GONE
         binding.navBottomCard.visibility = View.GONE
@@ -504,7 +535,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 updateMyLocationMarker()
                 tMapView.setCenterPoint(pt.longitude, pt.latitude)
 
-                // ⭐ 변경됨: TMap이 하나의 경로로 묶어주었으므로, 최종 목적지까지의 거리만 계산하면 됩니다!
+                // 최종 목적지까지의 거리만 계산
                 destinationPoint?.let {
                     val dist = calculateDistance(currentLocation!!, it)
                     binding.tvNavRemainInfo.text = String.format("목적지까지: %.0fm", dist)
@@ -517,19 +548,41 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     }
                 }
 
-                // 분기점 안내
+                // 분기점 안내 - 다가오면 카메라 띄우기
                 if (upcoming.isNotEmpty()) {
                     val next = upcoming.first()
-                    if (calculateDistance(currentLocation!!, next.coordinate) <= 30f
-                        && !announcedStepIndices.contains(next.pointIndex)) {
+                    val distToTurn = calculateDistance(currentLocation!!, next.coordinate)
+
+                    // 회전 지점 50m 전: AI 카메라 버튼 띄우기
+                    if (distToTurn in 30f..50f && binding.fabAiGuide.visibility == View.GONE) {
+                        currentStepForAI = next
+                        binding.fabAiGuide.visibility = View.VISIBLE
+                    }
+
+                    // 회전 지점 30m 이내: 랜드마크 기반 AI 안내 제공하기 위해 통신
+                    if (distToTurn <= 30f && !announcedStepIndices.contains(next.pointIndex)) {
                         announcedStepIndices.add(next.pointIndex)
+                        val originalMessage = next.description
 
-                        val cleanMessage = next.description
+                        // 비동기로 POI 검색 -> Gemini 텍스트 튜닝 -> 음성 출력
+                        lifecycleScope.launch {
+                            // 회전할 곳 주변의 랜드마크 찾기
+                            val landmarks = searchNearbyPOIForTurn(next.coordinate)
 
-                        binding.tvNavInstruction.text = cleanMessage // 화면에 깔끔하게 표시
-                        speakTTSWithCooldown(cleanMessage)           // 음성으로 읽어주기
+                            // Gemini에게 원래 지시사항과 랜드마크를 주고 텍스트 받아오기
+                            val enhancedMessage = if (landmarks == "특징적인 랜드마크 없음" || landmarks == "랜드마크 검색 실패") {
+                                originalMessage // 랜드마크 못 찾으면 원래 멘트 사용
+                            } else {
+                                GeminiHelper.enhanceNavigationText(originalMessage, landmarks)
+                            }
+
+                            // UI 업데이트 및 음성 안내!
+                            binding.tvNavInstruction.text = enhancedMessage
+                            speakTTSWithCooldown(enhancedMessage)
+                        }
 
                         upcoming.removeAt(0)
+                        binding.fabAiGuide.visibility = View.GONE
                     }
                 }
                 delay(MOCK_SPEED_MS)
@@ -563,11 +616,12 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+
     // ============================================================
     //  10. 경유지
     // ============================================================
 
-    /** 경유지 추가 버튼 클릭 시 호출 */
+    // 경유지 추가 버튼 클릭 시 호출
     private fun onAddWaypointClicked() {
         val et = EditText(this).apply {
             hint = "경유지 검색"
@@ -584,7 +638,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             .show()
     }
 
-    /** 검색된 POI를 경유지로 설정하고 경로 재탐색 */
+    //검색된 POI를 경유지로 설정하고 경로 재탐색
     private fun addWaypointAndReroute(item: PoiItem) {
         val lat = item.noorLat.toDoubleOrNull() ?: return
         val lon = item.noorLon.toDoubleOrNull() ?: return
@@ -612,7 +666,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    /** 경유지 삭제 로직 */
+    // 경유지 삭제 로직
     private fun removeWaypointAndReroute() {
         waypointPoint = null
         waypointName = ""
@@ -628,10 +682,11 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+
     // ============================================================
     //  11. 랜드마크 + 자연어 안내
     // ============================================================
-
+/*
     private suspend fun searchNearbyPOI(point: TMapPoint): String? = withContext(Dispatchers.IO) {
         try {
             val resp = RetrofitClient.tmapService.searchAroundPOI(
@@ -664,6 +719,35 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             else -> "${landmark} 방향으로 가세요"
         } else "약 30미터 앞에서 ${dir}하세요"
     }
+*/
+    // 주변 랜드마크 찾기
+    private suspend fun searchNearbyPOIForTurn(point: TMapPoint): String = withContext(Dispatchers.IO) {
+        try {
+            val resp = RetrofitClient.tmapService.searchAroundPOI(
+                appKey = BuildConfig.TMAP_APP_KEY,
+                version = 1,
+                centerLat = point.latitude.toString(),
+                centerLon = point.longitude.toString(),
+                radius = "1", // 반경 (1 = 약 300m 내외)
+                count = 5,
+                categories = "편의점;커피전문점;은행;패스트푸드;지하철역" // 가장 눈에 띄는 시설들
+            )
+
+            val poiList = resp.body()?.searchPoiInfo?.pois?.poiList
+            if (poiList.isNullOrEmpty()) {
+                return@withContext "특징적인 랜드마크 없음"
+            }
+
+            // 쓰레기 데이터(공중전화, 소화전 등) 제외하고 이름만 쉼표로 연결해서 3개만 추출
+            poiList.filter { !it.name.contains("소화전") && !it.name.contains("공중전화") }
+                .take(3)
+                .joinToString(", ") { it.name }
+
+        } catch (e: Exception) {
+            "랜드마크 검색 실패"
+        }
+    }
+
 
     // ============================================================
     //  12. TTS
@@ -678,6 +762,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (now - lastTTSTime >= TTS_COOLDOWN) { lastTTSTime = now; speakTTS(text) }
     }
 
+
     // ============================================================
     //  13. 유틸
     // ============================================================
@@ -691,5 +776,142 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val a = android.location.Location("").apply { latitude = p1.latitude; longitude = p1.longitude }
         val b = android.location.Location("").apply { latitude = p2.latitude; longitude = p2.longitude }
         return a.distanceTo(b)
+    }
+
+    
+    // ============================================================
+    //  14. AI 카메라 & Gemini 연동 로직
+    // ============================================================
+
+    private fun startAiCameraFlow() {
+        binding.fabAiGuide.visibility = View.GONE
+        binding.cvAiCameraLayout.visibility = View.VISIBLE
+        binding.ivSelectedImage.visibility = View.GONE
+        binding.viewFinder.visibility = View.VISIBLE
+
+        // 멘트 변경
+        binding.tvAiCameraStatus.text = "전방의 랜드마크를 비춘 후 촬영 버튼을 눌러주세요."
+
+        startCameraX()
+        speakTTS("전방을 비춘 후 촬영 버튼을 눌러주세요.")
+    }
+
+    private fun startCameraX() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+            val cameraProvider = cameraProviderFuture.get()
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(binding.viewFinder.surfaceProvider)
+            }
+            imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+            try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+            } catch (exc: Exception) { Log.e(TAG, "카메라 바인딩 실패", exc) }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun takePhotoAndSendToGemini() {
+        val step = currentStepForAI ?: return
+        val capture = imageCapture ?: return
+
+        binding.tvAiCameraStatus.text = "사진 촬영 완료! AI가 분석 중입니다..."
+        binding.progressBarAi.visibility = View.VISIBLE
+
+        capture.takePicture(
+            ContextCompat.getMainExecutor(this),
+            object : ImageCapture.OnImageCapturedCallback() {
+                override fun onCaptureSuccess(image: ImageProxy) {
+                    val bitmap = imageProxyToBitmap(image)
+                    image.close()
+                    if (bitmap != null) processGeminiAnalysis(bitmap, step)
+                }
+                override fun onError(exc: ImageCaptureException) {
+                    binding.cvAiCameraLayout.visibility = View.GONE
+                    Toast.makeText(this@TmapsActivity, "촬영 실패", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    private fun processGeminiAnalysis(bitmap: Bitmap, step: RouteStep) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val responseText = GeminiHelper.analyzeImage(bitmap, step)?.trim()
+
+                withContext(Dispatchers.Main) {
+                    binding.progressBarAi.visibility = View.GONE
+                    binding.cvAiCameraLayout.visibility = View.GONE
+
+                    // 예외 처리: AI가 인식에 실패해서 "0"을 반환했거나 결과가 없을 때
+                    if (responseText == null || responseText == "0" || responseText.isEmpty()) {
+                        val fallbackMessage = step.description // TMap의 기본 깔끔한 멘트
+
+                        binding.tvNavInstruction.text = fallbackMessage
+                        speakTTS(fallbackMessage)
+                        Toast.makeText(this@TmapsActivity, "특징을 찾기 어려워 기본 안내를 제공합니다.", Toast.LENGTH_SHORT).show()
+                    }
+                    // AI가 랜드마크를 찾아서 문장을 만들기 성공 시
+                    else {
+                        binding.tvNavInstruction.text = "🤖 $responseText"
+                        speakTTS(responseText)
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    binding.progressBarAi.visibility = View.GONE
+                    binding.cvAiCameraLayout.visibility = View.GONE
+
+                    // 통신 에러가 났을 때 그냥 기본 안내 제공
+                    val fallbackMessage = step.description
+                    binding.tvNavInstruction.text = fallbackMessage
+                    speakTTS(fallbackMessage)
+                    Toast.makeText(this@TmapsActivity, "AI 연결 오류로 기본 안내를 제공합니다.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // ImageProxy -> 640x480 Bitmap 최적화 함수
+    private fun imageProxyToBitmap(image: ImageProxy): Bitmap? {
+        val planeProxy = image.planes[0]
+        val buffer = planeProxy.buffer
+        val bytes = ByteArray(buffer.remaining())
+        buffer.get(bytes)
+        val original = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        val matrix = Matrix().apply {
+            postRotate(image.imageInfo.rotationDegrees.toFloat())
+            postScale(640f / original.width, 480f / original.height)
+        }
+        return Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
+    }
+
+    // --- 가상 테스트(Mock)용 갤러리 로직 ---
+    private val galleryForAiLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            try {
+                autoCaptureJob?.cancel() // 자동 촬영 취소
+                val inputStream = contentResolver.openInputStream(it)
+                val original = BitmapFactory.decodeStream(inputStream)
+                inputStream?.close()
+                val resized = Bitmap.createScaledBitmap(original, 640, 480, true)
+
+                binding.viewFinder.visibility = View.GONE
+                binding.ivSelectedImage.visibility = View.VISIBLE
+                binding.ivSelectedImage.setImageBitmap(original)
+                binding.tvAiCameraStatus.text = "갤러리 사진 로드 완료! AI 분석 중..."
+                binding.progressBarAi.visibility = View.VISIBLE
+
+                currentStepForAI?.let { step -> processGeminiAnalysis(resized, step) }
+
+            } catch (e: Exception) {}
+        }
+    }
+
+    private fun openGalleryForAiTest() {
+        galleryForAiLauncher.launch("image/*")
     }
 }

@@ -1,10 +1,127 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".CameraActivity">
+    android:background="#1A1A1A">
+
+    <!-- AI 응답 텍스트 -->
+    <TextView
+        android:id="@+id/tvAiResponse"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="50dp"
+        android:layout_marginRight="16dp"
+        android:layout_marginLeft="16dp"
+        android:background="#0F76CC"
+        android:padding="16dp"
+        android:text="AI 응답이 여기에 표시됩니다."
+        android:textColor="@android:color/white"
+        android:textSize="15sp"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- 카메라 프리뷰 (4:3 비율) -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/cameraCard"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_margin="16dp"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="4dp"
+        app:layout_constraintTop_toBottomOf="@id/tvAiResponse"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintDimensionRatio="3:4">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <androidx.camera.view.PreviewView
+                android:id="@+id/viewFinder"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <ImageView
+                android:id="@+id/ivSelectedImage"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+        </FrameLayout>
+
+    </androidx.cardview.widget.CardView>
+
+    <!-- 로딩 -->
+    <ProgressBar
+        android:id="@+id/progressBarAI"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="@id/cameraCard"
+        app:layout_constraintBottom_toBottomOf="@id/cameraCard"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- 하단 버튼 영역 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="24dp"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        app:layout_constraintTop_toBottomOf="@id/cameraCard"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <!-- 촬영 + 갤러리 버튼 (가로 배치) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center">
+
+            <!-- 갤러리에서 선택 -->
+            <Button
+                android:id="@+id/btnPickGallery"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:text="갤러리에서 사진 선택"
+                android:textSize="14sp"
+                android:textColor="#FFFFFF"
+                app:strokeColor="#555555"
+                app:cornerRadius="12dp"/>
+
+            <!-- 카메라 촬영 -->
+            <Button
+                android:id="@+id/btnCaptureAndSend"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="#1C86DB"
+                android:text="카메라로 촬영 및 분석"
+                android:textSize="14sp"
+                android:textColor="@android:color/white"
+                app:cornerRadius="12dp" />
+        </LinearLayout>
+
+        <!-- 갤러리 이미지 선택 후 AI 분석 버튼 (기본 숨김) -->
+        <Button
+            android:id="@+id/btnAnalyzeGallery"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="#4CAF50"
+            android:text="선택한 사진으로 AI 분석"
+            android:textColor="@android:color/white"
+            android:visibility="gone"
+            app:cornerRadius="12dp" />
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
