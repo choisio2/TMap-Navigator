@@ -94,7 +94,9 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var lastTTSTime = 0L
     private val TTS_COOLDOWN = 2000L
     private val announcedStepIndices = mutableSetOf<Int>()
-    private val MOCK_SPEED_MS = 2000L
+    private val MOCK_SPEED_MS = 1000L
+
+    private val upcomingSteps = mutableListOf<RouteStep>()
 
     // -- Camera --
     private var imageCapture: ImageCapture? = null
@@ -454,9 +456,17 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun startNavigation() {
         isMockMode = binding.switchMockMode.isChecked
-
         isNavigating = true
-        announcedStepIndices.clear()
+        upcomingSteps.clear()
+        upcomingSteps.addAll(routeSteps)
+        upcomingSteps.removeAll { s ->
+            s.description.contains("이동") && !s.description.contains("회전")
+                    && !s.description.contains("좌") && !s.description.contains("우")
+                    && !s.description.contains("m")
+        }
+
+        binding.searchCard.visibility = View.GONE
+
         binding.searchCard.visibility = View.GONE
         binding.cardRouteInfo.visibility = View.GONE
         binding.navTopCard.visibility = View.VISIBLE
@@ -521,70 +531,16 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun startMockNavigation() {
         mockNavJob?.cancel()
         mockNavJob = lifecycleScope.launch(Dispatchers.Main) {
-            val upcoming = routeSteps.toMutableList()
-            upcoming.removeAll { s ->
-                s.description.contains("이동") && !s.description.contains("회전")
-                        && !s.description.contains("좌") && !s.description.contains("우")
-                        && !s.description.contains("m")
-            }
-
-            val points = allRoutePoints.toList()  // 스냅샷 복사
+            val points = allRoutePoints.toList()
             for (pt in points) {
                 if (!isNavigating) break
                 currentLocation = pt
                 updateMyLocationMarker()
                 tMapView.setCenterPoint(pt.longitude, pt.latitude)
 
-                // 최종 목적지까지의 거리만 계산
-                destinationPoint?.let {
-                    val dist = calculateDistance(currentLocation!!, it)
-                    binding.tvNavRemainInfo.text = String.format("목적지까지: %.0fm", dist)
+                // 🌟 여기서 통합 로직 호출!
+                checkNavigationProgress(pt)
 
-                    // 목적지에 15m 이내로 접근하면 안내 종료
-                    if (dist <= 15f) {
-                        speakTTSWithCooldown("목적지 부근에 도착했습니다. 안내를 종료합니다.")
-                        stopNavigation()
-                        return@launch
-                    }
-                }
-
-                // 분기점 안내 - 다가오면 카메라 띄우기
-                if (upcoming.isNotEmpty()) {
-                    val next = upcoming.first()
-                    val distToTurn = calculateDistance(currentLocation!!, next.coordinate)
-
-                    // 회전 지점 50m 전: AI 카메라 버튼 띄우기
-                    if (distToTurn in 30f..50f && binding.fabAiGuide.visibility == View.GONE) {
-                        currentStepForAI = next
-                        binding.fabAiGuide.visibility = View.VISIBLE
-                    }
-
-                    // 회전 지점 30m 이내: 랜드마크 기반 AI 안내 제공하기 위해 통신
-                    if (distToTurn <= 30f && !announcedStepIndices.contains(next.pointIndex)) {
-                        announcedStepIndices.add(next.pointIndex)
-                        val originalMessage = next.description
-
-                        // 비동기로 POI 검색 -> Gemini 텍스트 튜닝 -> 음성 출력
-                        lifecycleScope.launch {
-                            // 회전할 곳 주변의 랜드마크 찾기
-                            val landmarks = searchNearbyPOIForTurn(next.coordinate)
-
-                            // Gemini에게 원래 지시사항과 랜드마크를 주고 텍스트 받아오기
-                            val enhancedMessage = if (landmarks == "특징적인 랜드마크 없음" || landmarks == "랜드마크 검색 실패") {
-                                originalMessage // 랜드마크 못 찾으면 원래 멘트 사용
-                            } else {
-                                GeminiHelper.enhanceNavigationText(originalMessage, landmarks)
-                            }
-
-                            // UI 업데이트 및 음성 안내!
-                            binding.tvNavInstruction.text = enhancedMessage
-                            speakTTSWithCooldown(enhancedMessage)
-                        }
-
-                        upcoming.removeAt(0)
-                        binding.fabAiGuide.visibility = View.GONE
-                    }
-                }
                 delay(MOCK_SPEED_MS)
             }
         }
@@ -608,9 +564,13 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             override fun onLocationResult(result: LocationResult) {
                 if (!isNavigating) return
                 result.lastLocation?.let { loc ->
-                    currentLocation = TMapPoint(loc.latitude, loc.longitude)
+                    val newLoc = TMapPoint(loc.latitude, loc.longitude)
+                    currentLocation = newLoc
                     updateMyLocationMarker()
                     tMapView.setCenterPoint(loc.longitude, loc.latitude)
+
+                    // 🌟 실제 GPS 위치를 받아서 똑같이 통합 로직 호출!
+                    checkNavigationProgress(newLoc)
                 }
             }
         }
@@ -913,5 +873,52 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun openGalleryForAiTest() {
         galleryForAiLauncher.launch("image/*")
+    }
+
+    private fun checkNavigationProgress(currentLoc: TMapPoint) {
+        // 1. 목적지 잔여 거리 계산 및 도착 체크
+        destinationPoint?.let { dest ->
+            val dist = calculateDistance(currentLoc, dest)
+            binding.tvNavRemainInfo.text = String.format("목적지까지: %.0fm", dist)
+
+            if (dist <= 15f) {
+                speakTTSWithCooldown("목적지 부근에 도착했습니다. 안내를 종료합니다.")
+                stopNavigation()
+                return
+            }
+        }
+
+        // 2. 분기점 AI 안내 로직
+        if (upcomingSteps.isNotEmpty()) {
+            val next = upcomingSteps.first()
+            val distToTurn = calculateDistance(currentLoc, next.coordinate)
+
+            // ① 회전 50m 전: AI 카메라 버튼 등장
+            if (distToTurn in 30f..50f && binding.fabAiGuide.visibility == View.GONE) {
+                currentStepForAI = next
+                binding.fabAiGuide.visibility = View.VISIBLE
+            }
+
+            // ② 회전 30m 이내: 랜드마크 기반 AI 텍스트 안내 제공
+            if (distToTurn <= 30f && !announcedStepIndices.contains(next.pointIndex)) {
+                announcedStepIndices.add(next.pointIndex)
+                val originalMessage = next.description
+
+                lifecycleScope.launch {
+                    val landmarks = searchNearbyPOIForTurn(next.coordinate)
+                    val enhancedMessage = if (landmarks == "특징적인 랜드마크 없음" || landmarks == "랜드마크 검색 실패") {
+                        originalMessage
+                    } else {
+                        GeminiHelper.enhanceNavigationText(originalMessage, landmarks)
+                    }
+
+                    binding.tvNavInstruction.text = enhancedMessage
+                    speakTTSWithCooldown(enhancedMessage)
+                }
+
+                upcomingSteps.removeAt(0)
+                binding.fabAiGuide.visibility = View.GONE
+            }
+        }
     }
 }

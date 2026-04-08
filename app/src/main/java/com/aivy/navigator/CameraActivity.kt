@@ -84,7 +84,7 @@ class CameraActivity : AppCompatActivity() {
         }
     }
 
-    /** 📸 CameraX: 카메라 미리보기 시작 */
+    // CameraX: 카메라 미리보기 시작
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
@@ -118,7 +118,7 @@ class CameraActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    /** 📸📸📸 사진 촬영 및 AI 분석 메인 로직 */
+    // 사진 촬영 및 AI 분석 메인 로직
     private fun takePhotoAndAnalyze() {
         val imageCapture = imageCapture ?: return
 
@@ -181,7 +181,7 @@ class CameraActivity : AppCompatActivity() {
         galleryLauncher.launch("image/*")
     }
 
-    /** ⭐⭐⭐ Gemini API 연동 및 결과 처리 */
+    // Gemini API 연동 및 결과 처리
     private fun sendImageToGemini(bitmap: Bitmap) {
         binding.tvAiResponse.text = "Gemini가 분석 중..."
 
@@ -191,13 +191,23 @@ class CameraActivity : AppCompatActivity() {
 
                 val inputContent = content {
                     image(bitmap)
-                    text(promptText) // 👈 이제 여기서 에러가 나지 않습니다!
+                    text(promptText)
                 }
+
+                // API 호출 시작 시간 기록
+                val startTime = System.currentTimeMillis()
 
                 val response = generativeModel.generateContent(inputContent)
 
+                // API 호출 종료 시간 기록 및 계산
+                val endTime = System.currentTimeMillis()
+                val timeTaken = (endTime - startTime) / 1000.0 // 초 단위로 변환
+
                 withContext(Dispatchers.Main) {
-                    binding.tvAiResponse.text = response.text ?: "응답 결과가 없습니다."
+                    // 결과 텍스트에 소요 시간도 함께 표시
+                    val resultText = response.text ?: "응답 결과가 없습니다."
+                    binding.tvAiResponse.text = "⏱️ 소요 시간: ${timeTaken}초\n🤖 $resultText"
+
                     binding.progressBarAI.visibility = View.GONE
                     binding.btnCaptureAndSend.isEnabled = true
                 }
@@ -215,7 +225,7 @@ class CameraActivity : AppCompatActivity() {
         }
     }
 
-    /** 🛠️ 유틸: ImageProxy를 Bitmap으로 변환 및 리사이징 */
+    // 유틸: ImageProxy를 Bitmap으로 변환 및 리사이징
     private fun imageProxyToBitmap(image: ImageProxy): Bitmap? {
         val planeProxy = image.planes[0]
         val buffer = planeProxy.buffer
