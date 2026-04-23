@@ -62,9 +62,9 @@ object GeminiHelper {
 
         return try {
             val response = generativeModel.generateContent(promptText)
-            response.text?.trim() ?: "G: $originalInstruction"
+            response.text?.trim() ?: "$originalInstruction"
         } catch (e: Exception) {
-            "G: $originalInstruction"
+            "$originalInstruction"
         }
     }
 }
