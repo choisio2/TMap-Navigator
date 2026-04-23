@@ -44,7 +44,6 @@ import android.widget.ArrayAdapter
 import android.view.ViewGroup
 import android.widget.TextView
 import android.graphics.Typeface
-import com.skt.Tmap.TMapCircle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -60,7 +59,7 @@ import java.util.concurrent.Executors
 class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     // ============================================================
-    //  1. 변수 선언
+    // 변수 선언
     // ============================================================
 
     private lateinit var binding: ActivityTmapsBinding
@@ -86,6 +85,9 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var isMockMode = true
     private var mockNavJob: Job? = null
 
+    //  재탐색 중복 호출 방지 플래그
+    private var isRerouting = false
+
     // -- TTS --
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
@@ -107,7 +109,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     companion object { private const val TAG = "TMAP_debug" }
 
     // ============================================================
-    //  2. 생명주기
+    // 생명주기
     // ============================================================
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,7 +133,6 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-        // 카메라 사진 분석
         binding.btnManualCapture.setOnClickListener { takePhotoAndSendToGemini() }
         binding.btnTestGallery.setOnClickListener { openGalleryForAiTest() }
         binding.fabAiGuide.setOnClickListener { startAiCameraFlow() }
@@ -162,13 +163,12 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     ) { permissions ->
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            fetchCurrentLocation() // 위치 가져오기 
+            fetchCurrentLocation()
         } else {
             Toast.makeText(this, "위치 권한이 거부되어 현재 위치를 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // 내 위치 마커 수정
     private fun getBitmapFromVectorDrawable(drawableId: Int): Bitmap {
         val drawable = ContextCompat.getDrawable(this, drawableId)!!
         val bitmap = Bitmap.createBitmap(
@@ -182,9 +182,8 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return bitmap
     }
 
-    
     // ============================================================
-    //  3. TMap 지도
+    // TMap 지도
     // ============================================================
 
     private fun setupTMapView() {
@@ -196,10 +195,9 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         })
         binding.tmapLayout.addView(tMapView)
     }
-    
 
     // ============================================================
-    //  4. 현재 위치
+    // 현재 위치
     // ============================================================
 
     @SuppressLint("MissingPermission")
@@ -217,27 +215,22 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
     }
 
-
     private fun updateMyLocationMarker() {
         currentLocation?.let {
             tMapView.removeMarkerItem("myLocation")
-
             val marker = TMapMarkerItem().apply {
                 tMapPoint = it
                 name = "내 위치"
-                // 커스텀 동그라미 마커 적용
                 icon = getBitmapFromVectorDrawable(R.drawable.ic_my_location_dot)
                 setPosition(0.5f, 0.5f)
             }
-
             tMapView.addMarkerItem("myLocation", marker)
             tMapView.postInvalidate()
         }
     }
-    
 
     // ============================================================
-    //  5. 목적지 검색
+    // 목적지 검색
     // ============================================================
 
     private fun setupSearch() {
@@ -258,7 +251,6 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 withContext(Dispatchers.Main) {
                     val list = resp.body()?.searchPoiInfo?.pois?.poiList
                     if (resp.isSuccessful && !list.isNullOrEmpty()) {
-                        // 목적지 리스트 UI 꾸미기
                         val adapter = object : ArrayAdapter<PoiItem>(this@TmapsActivity, android.R.layout.simple_list_item_2, android.R.id.text1, list) {
                             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                                 val view = super.getView(position, convertView, parent)
@@ -266,13 +258,11 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                                 val text2 = view.findViewById<TextView>(android.R.id.text2)
                                 val item = getItem(position)
 
-                                // 장소 이름 (크게, 굵게)
                                 text1.text = item?.name
                                 text1.textSize = 16f
                                 text1.setTypeface(null, Typeface.BOLD)
                                 text1.setTextColor(Color.parseColor("#212121"))
 
-                                // 장소 주소 (작게, 회색)
                                 text2.text = item?.getFullAddress()
                                 text2.textSize = 13f
                                 text2.setTextColor(Color.parseColor("#757575"))
@@ -282,21 +272,17 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                             }
                         }
 
-                        // Material 스타일의 다이얼로그 띄우기
                         MaterialAlertDialogBuilder(this@TmapsActivity)
                             .setTitle("어느 곳으로 갈까요?")
                             .setAdapter(adapter) { _, i -> onSelected(list[i]) }
                             .setNegativeButton("취소", null)
                             .show()
-
                     } else {
                         Toast.makeText(this@TmapsActivity, "검색 결과가 없습니다", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@TmapsActivity, "네트워크 오류", Toast.LENGTH_SHORT).show()
-                }
+                withContext(Dispatchers.Main) { Toast.makeText(this@TmapsActivity, "네트워크 오류", Toast.LENGTH_SHORT).show() }
             }
         }
     }
@@ -329,9 +315,8 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         hideKeyboard()
     }
 
-
     // ============================================================
-    //  6. 경로 탐색 & 그리기
+    // 경로 탐색 & 그리기
     // ============================================================
 
     private fun setupRouteButton() {
@@ -351,7 +336,6 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tMapView.removeMarkerItem("destination")
         tMapView.removeMarkerItem("waypoint")
 
-        // 경유지 UI 초기화
         waypointPoint = null
         waypointName = ""
         binding.tvWaypointInfo.text = "경유지 없음"
@@ -366,13 +350,13 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun findPedestrianRoute(start: TMapPoint, end: TMapPoint) {
-        binding.progressBar.visibility = View.VISIBLE
-        binding.fabRoute.visibility = View.GONE
-
-        // 경유지(waypointPoint)가 설정되어 있다면 passList 문자열 생성
-        val passListStr = waypointPoint?.let {
-            "${it.longitude},${it.latitude}"
+        // 이미 내비게이션 중(재탐색)이면 프로그래스바를 띄우지 않음
+        if (!isNavigating) {
+            binding.progressBar.visibility = View.VISIBLE
+            binding.fabRoute.visibility = View.GONE
         }
+
+        val passListStr = waypointPoint?.let { "${it.longitude},${it.latitude}" }
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -382,7 +366,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     startY = start.latitude.toString(),
                     endX = end.longitude.toString(),
                     endY = end.latitude.toString(),
-                    passList = passListStr // null이면 Retrofit이 전송 제외함
+                    passList = passListStr
                 )
 
                 withContext(Dispatchers.Main) {
@@ -391,29 +375,23 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         drawRouteAndSaveSteps(resp.body()!!.features)
                     } else {
                         Toast.makeText(this@TmapsActivity, "경로 탐색 실패", Toast.LENGTH_SHORT).show()
-                        binding.fabRoute.visibility = View.VISIBLE
+                        if (!isNavigating) binding.fabRoute.visibility = View.VISIBLE
+                        isRerouting = false
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     binding.progressBar.visibility = View.GONE
                     Toast.makeText(this@TmapsActivity, "네트워크 오류", Toast.LENGTH_SHORT).show()
-                    binding.fabRoute.visibility = View.VISIBLE
+                    if (!isNavigating) binding.fabRoute.visibility = View.VISIBLE
+                    isRerouting = false
                 }
             }
         }
     }
 
     private fun drawRouteAndSaveSteps(features: List<RouteFeature>) {
-        tMapView.removeAllTMapPolyLine()
         routeSteps.clear(); allRoutePoints.clear()
-
-        val polyLine = TMapPolyLine().apply {
-            lineColor = Color.parseColor("#215CF3")
-            lineWidth = 11f
-            outLineColor = Color.parseColor("#1976D2")
-            outLineWidth = 2f
-        }
         var totalTime = 0; var totalDistance = 0
 
         features.forEach { f ->
@@ -427,7 +405,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     for (i in 0 until arr.size()) {
                         val c = arr[i].asJsonArray
                         val pt = TMapPoint(c[1].asDouble, c[0].asDouble)
-                        polyLine.addLinePoint(pt); allRoutePoints.add(pt)
+                        allRoutePoints.add(pt)
                     }
                 }
                 "Point" -> {
@@ -442,21 +420,61 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
 
-        tMapView.addTMapPolyLine("pedestrian_route", polyLine)
-        tMapView.postInvalidate()
-        binding.tvRouteSummary.text = String.format("도보 %d분 (%.1fkm)", totalTime / 60, totalDistance / 1000.0)
-        binding.cardRouteInfo.visibility = View.VISIBLE
-        binding.searchCard.visibility = View.GONE
+        // 폴리라인 업데이트 (기존 선 지우고 새로 그리기)
+        updatePolyline()
+
+        if (isNavigating) {
+            // 재탐색 성공 시, 내비게이션 데이터 리셋 및 안내 재개
+            upcomingSteps.clear()
+            upcomingSteps.addAll(routeSteps)
+            upcomingSteps.removeAll { s ->
+                s.description.contains("이동") && !s.description.contains("회전")
+                        && !s.description.contains("좌") && !s.description.contains("우")
+                        && !s.description.contains("m")
+            }
+            announcedStepIndices.clear()
+
+            binding.tvNavInstruction.text = "새로운 경로로 안내를 계속합니다."
+            speakTTS("새로운 경로를 찾았습니다. 안내를 계속합니다.")
+            isRerouting = false // 재탐색 플래그 해제
+
+            // 가상 주행 모드였다면 모의 주행 재시작
+            if (isMockMode) startMockNavigation()
+
+        } else {
+            // 최초 탐색 시 (미리보기 화면)
+            binding.tvRouteSummary.text = String.format("도보 %d분 (%.1fkm)", totalTime / 60, totalDistance / 1000.0)
+            binding.cardRouteInfo.visibility = View.VISIBLE
+            binding.searchCard.visibility = View.GONE
+        }
     }
 
+    // 궤적 갱신 공통 함수 (지나간 길 지우기 + 재탐색 그리기 겸용)
+    private fun updatePolyline() {
+        tMapView.removeTMapPolyLine("pedestrian_route")
+        if (allRoutePoints.isEmpty()) return
+
+        val polyLine = TMapPolyLine().apply {
+            lineColor = Color.parseColor("#215CF3")
+            lineWidth = 11f
+            outLineColor = Color.parseColor("#1976D2")
+            outLineWidth = 2f
+        }
+
+        allRoutePoints.forEach { polyLine.addLinePoint(it) }
+        tMapView.addTMapPolyLine("pedestrian_route", polyLine)
+        tMapView.postInvalidate()
+    }
 
     // ============================================================
-    //  7. 내비게이션 시작 / 종료
+    // 내비게이션 시작 / 종료
     // ============================================================
 
     private fun startNavigation() {
         isMockMode = binding.switchMockMode.isChecked
         isNavigating = true
+        isRerouting = false
+
         upcomingSteps.clear()
         upcomingSteps.addAll(routeSteps)
         upcomingSteps.removeAll { s ->
@@ -464,8 +482,6 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     && !s.description.contains("좌") && !s.description.contains("우")
                     && !s.description.contains("m")
         }
-
-        binding.searchCard.visibility = View.GONE
 
         binding.searchCard.visibility = View.GONE
         binding.cardRouteInfo.visibility = View.GONE
@@ -487,30 +503,26 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun stopNavigation() {
-        // 가상주행 루프 탈출
         isNavigating = false
+        isRerouting = false
+        mockNavJob?.cancel()
 
-        // GPS 콜백 해제
         if (this::locationCallback.isInitialized) {
             try { fusedLocationClient.removeLocationUpdates(locationCallback) } catch (_: Exception) {}
         }
 
-        // TTS
         speakTTS("경로 안내를 종료합니다.")
 
-        // 지도 정리
         tMapView.removeAllTMapPolyLine()
         tMapView.removeMarkerItem("destination")
         tMapView.removeMarkerItem("waypoint")
 
-        // 데이터 초기화 (isWaypointMode 삭제됨)
         allRoutePoints.clear()
         routeSteps.clear()
         announcedStepIndices.clear()
         waypointPoint = null
         waypointName = ""
 
-        // UI 복귀
         binding.tvWaypointInfo.text = "경유지 없음"
         binding.btnAddWaypoint.visibility = View.VISIBLE
         binding.btnRemoveWaypoint.visibility = View.GONE
@@ -525,12 +537,13 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     // ============================================================
-    //  8. 가상 주행
+    // 가상 주행
     // ============================================================
 
     private fun startMockNavigation() {
         mockNavJob?.cancel()
         mockNavJob = lifecycleScope.launch(Dispatchers.Main) {
+            // point 리스트 복사본 사용 (도중에 잘려나가도 에러 안 나게)
             val points = allRoutePoints.toList()
             for (pt in points) {
                 if (!isNavigating) break
@@ -538,17 +551,14 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 updateMyLocationMarker()
                 tMapView.setCenterPoint(pt.longitude, pt.latitude)
 
-                // 🌟 여기서 통합 로직 호출!
                 checkNavigationProgress(pt)
-
                 delay(MOCK_SPEED_MS)
             }
         }
     }
 
-
     // ============================================================
-    //  9. 실제 GPS 주행
+    // 실제 GPS 주행
     // ============================================================
 
     private fun startRealNavigation() {
@@ -569,19 +579,16 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     updateMyLocationMarker()
                     tMapView.setCenterPoint(loc.longitude, loc.latitude)
 
-                    // 🌟 실제 GPS 위치를 받아서 똑같이 통합 로직 호출!
                     checkNavigationProgress(newLoc)
                 }
             }
         }
     }
 
-
     // ============================================================
-    //  10. 경유지
+    // 경유지
     // ============================================================
 
-    // 경유지 추가 버튼 클릭 시 호출
     private fun onAddWaypointClicked() {
         val et = EditText(this).apply {
             hint = "경유지 검색"
@@ -598,14 +605,12 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             .show()
     }
 
-    //검색된 POI를 경유지로 설정하고 경로 재탐색
     private fun addWaypointAndReroute(item: PoiItem) {
         val lat = item.noorLat.toDoubleOrNull() ?: return
         val lon = item.noorLon.toDoubleOrNull() ?: return
         waypointPoint = TMapPoint(lat, lon)
         waypointName = item.name
 
-        // 지도에 경유지 마커 표시
         val marker = TMapMarkerItem().apply {
             tMapPoint = waypointPoint
             name = "경유지: ${item.name}"
@@ -620,19 +625,16 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         speakTTS("${item.name}을 경유지로 추가했습니다.")
 
-        // 현재 위치에서 목적지까지, 경유지를 포함하여 다시 탐색
         if (currentLocation != null && destinationPoint != null) {
             findPedestrianRoute(currentLocation!!, destinationPoint!!)
         }
     }
 
-    // 경유지 삭제 로직
     private fun removeWaypointAndReroute() {
         waypointPoint = null
         waypointName = ""
         tMapView.removeMarkerItem("waypoint")
 
-        // UI 원상복구
         binding.tvWaypointInfo.text = "경유지 없음"
         binding.btnAddWaypoint.visibility = View.VISIBLE
         binding.btnRemoveWaypoint.visibility = View.GONE
@@ -642,45 +644,10 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-
     // ============================================================
-    //  11. 랜드마크 + 자연어 안내
+    // 랜드마크
     // ============================================================
-/*
-    private suspend fun searchNearbyPOI(point: TMapPoint): String? = withContext(Dispatchers.IO) {
-        try {
-            val resp = RetrofitClient.tmapService.searchAroundPOI(
-                appKey = BuildConfig.TMAP_APP_KEY,
-                centerLat = point.latitude.toString(),
-                centerLon = point.longitude.toString(),
-                radius = "1",
-                count = 5, // 5개 정도 가져와서 제일 이상한 건 거르기 위함
-                categories = "편의점;커피전문점;패스트푸드;은행"
-            )
-            resp.body()?.searchPoiInfo?.pois?.poiList?.firstOrNull {
-                !it.name.contains("소화전") && !it.name.contains("공중전화") && !it.name.contains("정류소")
-            }?.name
-        } catch (_: Exception) { null }
-    }
 
-    private fun buildSmartMessage(step: RouteStep, landmark: String?): String {
-        val dir = when (step.turnType) {
-            12 -> "좌회전"; 13 -> "우회전"; 14 -> "유턴"
-            16 -> "8시 방향"; 17 -> "10시 방향"; 18 -> "2시 방향"; 19 -> "4시 방향"
-            211,212,213,214,215,216,217 -> "횡단보도"; 233 -> "직진"
-            else -> step.description
-        }
-        if (dir == "직진") return step.description.replace("이동","직진하세요").replace("m","미터")
-        return if (landmark != null) when (dir) {
-            "좌회전" -> "전방 ${landmark}을 끼고 왼쪽으로 도세요"
-            "우회전" -> "전방 ${landmark}을 끼고 오른쪽으로 도세요"
-            "횡단보도" -> "${landmark} 근처 횡단보도를 건너주세요"
-            "유턴" -> "${landmark} 앞에서 유턴하세요"
-            else -> "${landmark} 방향으로 가세요"
-        } else "약 30미터 앞에서 ${dir}하세요"
-    }
-*/
-    // 주변 랜드마크 찾기
     private suspend fun searchNearbyPOIForTurn(point: TMapPoint): String = withContext(Dispatchers.IO) {
         try {
             val resp = RetrofitClient.tmapService.searchAroundPOI(
@@ -688,29 +655,22 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 version = 1,
                 centerLat = point.latitude.toString(),
                 centerLon = point.longitude.toString(),
-                radius = "1", // 반경 (1 = 약 300m 내외)
+                radius = "1",
                 count = 5,
-                categories = "편의점;커피전문점;은행;패스트푸드;지하철역" // 가장 눈에 띄는 시설들
+                categories = "편의점;커피전문점;은행;패스트푸드;지하철역"
             )
 
             val poiList = resp.body()?.searchPoiInfo?.pois?.poiList
-            if (poiList.isNullOrEmpty()) {
-                return@withContext "특징적인 랜드마크 없음"
-            }
+            if (poiList.isNullOrEmpty()) return@withContext "특징적인 랜드마크 없음"
 
-            // 쓰레기 데이터(공중전화, 소화전 등) 제외하고 이름만 쉼표로 연결해서 3개만 추출
             poiList.filter { !it.name.contains("소화전") && !it.name.contains("공중전화") }
                 .take(3)
                 .joinToString(", ") { it.name }
-
-        } catch (e: Exception) {
-            "랜드마크 검색 실패"
-        }
+        } catch (e: Exception) { "랜드마크 검색 실패" }
     }
 
-
     // ============================================================
-    //  12. TTS
+    // TTS
     // ============================================================
 
     private fun speakTTS(text: String) {
@@ -722,9 +682,8 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (now - lastTTSTime >= TTS_COOLDOWN) { lastTTSTime = now; speakTTS(text) }
     }
 
-
     // ============================================================
-    //  13. 유틸
+    // 유틸
     // ============================================================
 
     private fun hideKeyboard() {
@@ -738,9 +697,8 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return a.distanceTo(b)
     }
 
-    
     // ============================================================
-    //  14. AI 카메라 & Gemini 연동 로직
+    // AI 카메라 & Gemini 연동 로직
     // ============================================================
 
     private fun startAiCameraFlow() {
@@ -749,9 +707,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         binding.ivSelectedImage.visibility = View.GONE
         binding.viewFinder.visibility = View.VISIBLE
 
-        // 멘트 변경
         binding.tvAiCameraStatus.text = "전방의 랜드마크를 비춘 후 촬영 버튼을 눌러주세요."
-
         startCameraX()
         speakTTS("전방을 비춘 후 촬영 버튼을 눌러주세요.")
     }
@@ -806,16 +762,12 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     binding.progressBarAi.visibility = View.GONE
                     binding.cvAiCameraLayout.visibility = View.GONE
 
-                    // 예외 처리: AI가 인식에 실패해서 "0"을 반환했거나 결과가 없을 때
                     if (responseText == null || responseText == "0" || responseText.isEmpty()) {
-                        val fallbackMessage = step.description // TMap의 기본 깔끔한 멘트
-
+                        val fallbackMessage = step.description
                         binding.tvNavInstruction.text = fallbackMessage
                         speakTTS(fallbackMessage)
                         Toast.makeText(this@TmapsActivity, "특징을 찾기 어려워 기본 안내를 제공합니다.", Toast.LENGTH_SHORT).show()
-                    }
-                    // AI가 랜드마크를 찾아서 문장을 만들기 성공 시
-                    else {
+                    } else {
                         binding.tvNavInstruction.text = "🤖 $responseText"
                         speakTTS(responseText)
                     }
@@ -824,8 +776,6 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 withContext(Dispatchers.Main) {
                     binding.progressBarAi.visibility = View.GONE
                     binding.cvAiCameraLayout.visibility = View.GONE
-
-                    // 통신 에러가 났을 때 그냥 기본 안내 제공
                     val fallbackMessage = step.description
                     binding.tvNavInstruction.text = fallbackMessage
                     speakTTS(fallbackMessage)
@@ -835,7 +785,6 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    // ImageProxy -> 640x480 Bitmap 최적화 함수
     private fun imageProxyToBitmap(image: ImageProxy): Bitmap? {
         val planeProxy = image.planes[0]
         val buffer = planeProxy.buffer
@@ -849,11 +798,10 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
     }
 
-    // --- 가상 테스트(Mock)용 갤러리 로직 ---
     private val galleryForAiLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             try {
-                autoCaptureJob?.cancel() // 자동 촬영 취소
+                autoCaptureJob?.cancel()
                 val inputStream = contentResolver.openInputStream(it)
                 val original = BitmapFactory.decodeStream(inputStream)
                 inputStream?.close()
@@ -866,17 +814,49 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 binding.progressBarAi.visibility = View.VISIBLE
 
                 currentStepForAI?.let { step -> processGeminiAnalysis(resized, step) }
-
             } catch (e: Exception) {}
         }
     }
 
-    private fun openGalleryForAiTest() {
-        galleryForAiLauncher.launch("image/*")
-    }
+    private fun openGalleryForAiTest() { galleryForAiLauncher.launch("image/*") }
+
+    // ============================================================
+    // 실시간 내비게이션 통합 상태 체크 - 지나간 길 지우기 & 이탈 감지
+    // ============================================================
 
     private fun checkNavigationProgress(currentLoc: TMapPoint) {
-        // 1. 목적지 잔여 거리 계산 및 도착 체크
+        if (isRerouting || allRoutePoints.isEmpty()) return
+
+        // 지나간 경로 지우기 & 이탈 판단을 위해 가장 가까운 점 찾기
+        var minDist = Float.MAX_VALUE
+        var closestIdx = 0
+        for (i in allRoutePoints.indices) {
+            val dist = calculateDistance(currentLoc, allRoutePoints[i])
+            if (dist < minDist) {
+                minDist = dist
+                closestIdx = i
+            }
+        }
+
+        // 경로 이탈 감지 (30m 이상 벗어났고, 가상주행이 아닐 때)
+        if (minDist > 30f && !isMockMode) {
+            isRerouting = true
+            speakTTS("경로를 벗어났습니다. 경로를 재탐색합니다.")
+            binding.tvNavInstruction.text = "경로 재탐색 중..."
+
+            if (destinationPoint != null) {
+                findPedestrianRoute(currentLoc, destinationPoint!!)
+            }
+            return
+        }
+
+        // 지나간 경로 지우기 (뒤쪽 좌표 삭제 후 폴리라인 다시 그리기)
+        if (closestIdx > 0) {
+            allRoutePoints.subList(0, closestIdx).clear()
+            updatePolyline()
+        }
+
+        // 목적지 잔여 거리 계산 및 도착 체크
         destinationPoint?.let { dest ->
             val dist = calculateDistance(currentLoc, dest)
             binding.tvNavRemainInfo.text = String.format("목적지까지: %.0fm", dist)
@@ -888,18 +868,16 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
 
-        // 2. 분기점 AI 안내 로직
+        // 분기점 AI 안내 로직
         if (upcomingSteps.isNotEmpty()) {
             val next = upcomingSteps.first()
             val distToTurn = calculateDistance(currentLoc, next.coordinate)
 
-            // ① 회전 50m 전: AI 카메라 버튼 등장
             if (distToTurn in 30f..50f && binding.fabAiGuide.visibility == View.GONE) {
                 currentStepForAI = next
                 binding.fabAiGuide.visibility = View.VISIBLE
             }
 
-            // ② 회전 30m 이내: 랜드마크 기반 AI 텍스트 안내 제공
             if (distToTurn <= 30f && !announcedStepIndices.contains(next.pointIndex)) {
                 announcedStepIndices.add(next.pointIndex)
                 val originalMessage = next.description
