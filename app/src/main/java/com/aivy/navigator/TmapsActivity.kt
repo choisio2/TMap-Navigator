@@ -125,6 +125,8 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     // 출발 시 방향 안내를 한 번만 하기 위한 플래그
     private var isInitialDirectionAnnounced = false
 
+    // 음성 출력 빈도 증가
+    private var lastAnnouncedLoc: TMapPoint? = null
     // ============================================================
     // 생명주기
     // ============================================================
@@ -558,6 +560,9 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         isNavigating = true
         isRerouting = false
 
+        isInitialDirectionAnnounced = false
+        lastAnnouncedLoc = currentLocation
+
         upcomingSteps.clear()
         upcomingSteps.addAll(routeSteps)
         upcomingSteps.removeAll { s ->
@@ -850,7 +855,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun processGeminiAnalysis(bitmap: Bitmap, step: RouteStep) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val responseText = GeminiHelper.analyzeImage(bitmap, step)?.trim()
+                val responseText = GeminiHelper.analyzeImage(bitmap, step, currentAzimuth)?.trim()
 
                 withContext(Dispatchers.Main) {
                     binding.progressBarAi.visibility = View.GONE
@@ -862,7 +867,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         speakTTS(fallbackMessage)
                         Toast.makeText(this@TmapsActivity, "특징을 찾기 어려워 기본 안내를 제공합니다.", Toast.LENGTH_SHORT).show()
                     } else {
-                        binding.tvNavInstruction.text = "🤖 $responseText"
+                        binding.tvNavInstruction.text = "$responseText"
                         speakTTS(responseText)
                     }
                 }
@@ -950,6 +955,16 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             updatePolyline()
         }
 
+        // 이전 위치와의 거리를 계산해 총 이동 거리에 합산
+        val distSinceLastAnnouncement = calculateDistance(lastAnnouncedLoc ?: currentLoc, currentLoc)
+        if (distSinceLastAnnouncement >= 100f) {
+            val nextDist = upcomingSteps.firstOrNull()?.let { calculateDistance(currentLoc, it.coordinate) } ?: 999f
+            if (nextDist > 50f) { // 곧 회전할 지점이 아닐 때만
+                speakTTSWithCooldown("경로를 따라 잘 이동하고 있습니다. 계속 직진하세요.")
+                lastAnnouncedLoc = currentLoc // 안내를 했으므로 위치 갱신
+            }
+        }
+
         // 목적지 잔여 거리 계산 및 도착 체크
         destinationPoint?.let { dest ->
             val dist = calculateDistance(currentLoc, dest)
@@ -967,10 +982,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val next = upcomingSteps.first()
             val distToTurn = calculateDistance(currentLoc, next.coordinate)
 
-            if (distToTurn in 30f..50f && binding.fabAiGuide.visibility == View.GONE) {
-                currentStepForAI = next
-                binding.fabAiGuide.visibility = View.VISIBLE
-            }
+            // ... (AI 버튼 등장 로직 생략) ...
 
             if (distToTurn <= 30f && !announcedStepIndices.contains(next.pointIndex)) {
                 announcedStepIndices.add(next.pointIndex)
@@ -979,13 +991,14 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 lifecycleScope.launch {
                     val landmarks = searchNearbyPOIForTurn(next.coordinate)
                     val enhancedMessage = if (landmarks == "특징적인 랜드마크 없음" || landmarks == "랜드마크 검색 실패") {
-                        originalMessage
+                        "G: $originalMessage"
                     } else {
-                        GeminiHelper.enhanceNavigationText(originalMessage, landmarks)
+                        GeminiHelper.enhanceNavigationText(originalMessage, landmarks, currentAzimuth)
                     }
 
                     binding.tvNavInstruction.text = enhancedMessage
                     speakTTSWithCooldown(enhancedMessage)
+                    lastAnnouncedLoc = currentLoc // ⭐ 추가: 분기점 안내를 했으므로 기준 위치 갱신
                 }
 
                 upcomingSteps.removeAt(0)
