@@ -55,6 +55,11 @@ import android.graphics.Matrix
 import android.graphics.BitmapFactory
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import kotlin.math.abs
 
 class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
@@ -108,6 +113,18 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     companion object { private const val TAG = "TMAP_debug" }
 
+    // -- 방향(방위각) 센서 --
+    private lateinit var sensorManager: SensorManager
+    private var accelerometer: Sensor? = null
+    private var magnetometer: Sensor? = null
+    private val gravity = FloatArray(3)
+    private val geomagnetic = FloatArray(3)
+    private var currentAzimuth = 0f // 현재 내가 바라보는 방위각 (0~360)
+    private var lastMarkerAzimuth = 0f
+    private var myLocationBaseBitmap: Bitmap? = null
+    // 출발 시 방향 안내를 한 번만 하기 위한 플래그
+    private var isInitialDirectionAnnounced = false
+
     // ============================================================
     // 생명주기
     // ============================================================
@@ -137,6 +154,12 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         binding.btnTestGallery.setOnClickListener { openGalleryForAiTest() }
         binding.fabAiGuide.setOnClickListener { startAiCameraFlow() }
 
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
+        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+
+        myLocationBaseBitmap = getBitmapFromVectorDrawable(R.drawable.ic_my_location_dot_sensor)
+
         setupTMapView()
         setupSearch()
         setupRouteButton()
@@ -148,6 +171,7 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (isNavigating && this::locationCallback.isInitialized) {
             try { fusedLocationClient.removeLocationUpdates(locationCallback) } catch (_: Exception) {}
         }
+        sensorManager.unregisterListener(sensorEventListener)
         cameraExecutor.shutdown()
         super.onDestroy()
     }
@@ -156,6 +180,58 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale.KOREAN; tts.setSpeechRate(0.85f);tts.setPitch(1.0f); isTtsReady = true
         }
+    }
+
+    private val sensorEventListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) gravity.indices.forEach { gravity[it] = event.values[it] }
+            if (event.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) geomagnetic.indices.forEach { geomagnetic[it] = event.values[it] }
+
+            val R = FloatArray(9)
+            val I = FloatArray(9)
+            if (SensorManager.getRotationMatrix(R, I, gravity, geomagnetic)) {
+                val orientation = FloatArray(3)
+                SensorManager.getOrientation(R, orientation)
+                currentAzimuth = (Math.toDegrees(orientation[0].toDouble()).toFloat() + 360) % 360
+
+                // 폰을 5도 이상 돌렸을 때만 화살표 화면 갱신
+                if (Math.abs(currentAzimuth - lastMarkerAzimuth) > 5f) {
+                    lastMarkerAzimuth = currentAzimuth
+                    updateMyLocationMarker()
+                }
+            }
+        }
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    // 두 좌표 간의 방위각(Bearing)을 구하는 유틸 함수
+    private fun getBearingToNextPoint(p1: TMapPoint, p2: TMapPoint): Float {
+        val l1 = android.location.Location("").apply { latitude = p1.latitude; longitude = p1.longitude }
+        val l2 = android.location.Location("").apply { latitude = p2.latitude; longitude = p2.longitude }
+        return (l1.bearingTo(l2) + 360) % 360
+    }
+
+    // 출발 초기 방향 안내 함수
+    private fun checkInitialDirection() {
+        if (allRoutePoints.size < 2 || isInitialDirectionAnnounced) return
+
+        val targetBearing = getBearingToNextPoint(allRoutePoints[0], allRoutePoints[1])
+
+        // 내 방향과 가야할 방향의 차이 계산 (-180 ~ 180도)
+        var diff = targetBearing - currentAzimuth
+        if (diff > 180) diff -= 360
+        if (diff < -180) diff += 360
+
+        val directionMessage = when {
+            abs(diff) <= 30 -> "올바른 방향입니다. 그대로 직진하세요."
+            diff > 30 && diff <= 120 -> "오른쪽 방향으로 돌아서 출발하세요."
+            diff < -30 && diff >= -120 -> "왼쪽 방향으로 돌아서 출발하세요."
+            else -> "현재 반대 방향을 보고 있습니다. 뒤로 돌아 출발하세요."
+        }
+
+        binding.tvNavInstruction.text = directionMessage
+        speakTTS(directionMessage)
+        isInitialDirectionAnnounced = true // 한 번만 안내하도록 플래그 잠금
     }
 
     private val locationPermissionRequest = registerForActivityResult(
@@ -221,7 +297,14 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val marker = TMapMarkerItem().apply {
                 tMapPoint = it
                 name = "내 위치"
-                icon = getBitmapFromVectorDrawable(R.drawable.ic_my_location_dot)
+
+                val base = myLocationBaseBitmap ?: return@apply
+
+                // Matrix를 이용한 비트맵 회전
+                val matrix = Matrix().apply { postRotate(currentAzimuth) }
+                icon = Bitmap.createBitmap(base, 0, 0, base.width, base.height, matrix, true)
+
+                // 마커의 중심점을 이미지의 정중앙으로 설정
                 setPosition(0.5f, 0.5f)
             }
             tMapView.addMarkerItem("myLocation", marker)
@@ -492,6 +575,15 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         speakTTS("$modeText 경로 안내를 시작합니다.")
 
         if (isMockMode) startMockNavigation() else startRealNavigation()
+
+        accelerometer?.let { sensorManager.registerListener(sensorEventListener, it, SensorManager.SENSOR_DELAY_UI) }
+        magnetometer?.let { sensorManager.registerListener(sensorEventListener, it, SensorManager.SENSOR_DELAY_UI) }
+        isInitialDirectionAnnounced = false // 플래그 초기화
+
+        // 실제 주행이든 가상 주행이든 시작 시 첫 방향 브리핑
+        binding.tmapLayout.postDelayed({ checkInitialDirection() }, 1000)
+
+        if (isMockMode) startMockNavigation() else startRealNavigation()
     }
 
     private fun showStopDialog() {
@@ -503,6 +595,8 @@ class TmapsActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun stopNavigation() {
+        sensorManager.unregisterListener(sensorEventListener) // 센서 해제
+
         isNavigating = false
         isRerouting = false
         mockNavJob?.cancel()
