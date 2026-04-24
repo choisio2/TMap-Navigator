@@ -1,5 +1,6 @@
 package com.aivy.navigator.data.network
 
+import com.aivy.navigator.data.model.TMapPoiResponse
 import com.google.gson.JsonObject
 import retrofit2.Response
 import retrofit2.http.Body
@@ -7,6 +8,9 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Query
+import com.aivy.navigator.data.model.TmapRouteResponse
+import retrofit2.http.Field
+import retrofit2.http.FormUrlEncoded
 
 interface TMapApiService {
     // POI(장소) 통합 검색
@@ -19,12 +23,21 @@ interface TMapApiService {
         @Query("count") count: Int = 10 // 10개만 가져오기
     ): Response<TMapPoiResponse>
 
-    // 보행자 경로 API 추가
+    @FormUrlEncoded
     @POST("tmap/routes/pedestrian?version=1")
     suspend fun getPedestrianRoute(
         @Header("appKey") appKey: String,
-        @Body request: PedestrianRouteRequest
-    ): Response<PedestrianRouteResponse>
+        @Field("startX") startX: String,
+        @Field("startY") startY: String,
+        @Field("endX") endX: String,
+        @Field("endY") endY: String,
+        @Field("passList") passList: String? = null,
+        @Field("reqCoordType") reqCoordType: String = "WGS84GEO",
+        @Field("resCoordType") resCoordType: String = "WGS84GEO",
+        @Field("startName") startName: String = "출발지",
+        @Field("endName") endName: String = "목적지"
+    ): Response<TmapRouteResponse>
+
 
     // 주변 POI 검색 API
     @GET("tmap/pois/search/around")

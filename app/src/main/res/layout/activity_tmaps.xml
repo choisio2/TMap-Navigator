@@ -6,6 +6,7 @@
     android:layout_height="match_parent"
     android:background="#F5F5F5">
 
+    <!-- ====== 지도 ====== -->
     <FrameLayout
         android:id="@+id/tmapLayout"
         android:layout_width="match_parent"
@@ -13,6 +14,7 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"/>
 
+    <!-- ====== 검색창 카드 ====== -->
     <androidx.cardview.widget.CardView
         android:id="@+id/searchCard"
         android:layout_width="match_parent"
@@ -37,6 +39,7 @@
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="뒤로가기"
                 android:src="@drawable/ic_arrow_back"
                 app:tint="#424242" />
 
@@ -61,31 +64,25 @@
                 android:layout_height="40dp"
                 android:layout_marginEnd="4dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="검색"
                 android:src="@drawable/ic_search"
                 app:tint="#DE6F3F" />
         </LinearLayout>
     </androidx.cardview.widget.CardView>
 
-    <androidx.cardview.widget.CardView
-        android:id="@+id/loadingCard"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+    <!-- ====== 로딩 인디케이터 ====== -->
+    <ProgressBar
+        android:id="@+id/progressBar"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:visibility="gone"
-        app:cardCornerRadius="50dp"
-        app:cardElevation="8dp"
+        android:indeterminateTint="#DE6F3F"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        app:layout_constraintEnd_toEndOf="parent" />
 
-        <ProgressBar
-            android:id="@+id/progressBar"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_margin="12dp"
-            android:indeterminateTint="#DE6F3F" />
-    </androidx.cardview.widget.CardView>
-
+    <!-- ====== 경로 찾기 FAB ====== -->
     <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
         android:id="@+id/fabRoute"
         android:layout_width="wrap_content"
@@ -101,6 +98,7 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- ====== 경로 미리보기 카드 (⭐ 경유지 추가 포함) ====== -->
     <androidx.cardview.widget.CardView
         android:id="@+id/cardRouteInfo"
         android:layout_width="match_parent"
@@ -137,29 +135,117 @@
                 android:textSize="24sp"
                 android:textStyle="bold" />
 
-            <Button
-                android:id="@+id/btnStartNavigation"
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="#FFF3E0"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="8dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="🚗 가상 주행 모드(디버깅용)"
+                    android:textStyle="bold"
+                    android:textColor="#FF9800"
+                    android:textSize="14sp" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchMockMode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    app:thumbTint="#FF9800" />
+            </LinearLayout>
+
+            <!-- ⭐ 경유지 영역 (경로 미리보기 단계에서 추가/삭제) -->
+            <LinearLayout
+                android:id="@+id/waypointContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvWaypointInfo"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="경유지 없음"
+                    android:textColor="#757575"
+                    android:textSize="17sp" />
+
+                <!-- 경유지 추가 버튼 -->
+                <Button
+                    android:id="@+id/btnAddWaypoint"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="+ 경유지 "
+                    android:paddingHorizontal="30dp"
+                    android:textSize="12sp"
+                    app:strokeColor="#4CAF50"
+                    android:textColor="#4CAF50" />
+
+                <!-- 경유지 삭제 버튼 (경유지 추가 후에만 표시) -->
+                <ImageButton
+                    android:id="@+id/btnRemoveWaypoint"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="경유지 삭제"
+                    android:src="@drawable/ic_close"
+                    android:visibility="gone"
+                    app:tint="#F44336" />
+            </LinearLayout>
+
+            <!-- 취소 / 안내 시작 버튼 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:backgroundTint="#DE6F3F"
-                android:text="안내 시작"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                app:cornerRadius="12dp" />
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnCancelRoutePreview"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:text="취소"
+                    android:textColor="#757575"
+                    app:strokeColor="#BDBDBD" />
+
+                <Button
+                    android:id="@+id/btnStartNavigation"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="2"
+                    android:backgroundTint="#DE6F3F"
+                    android:text="안내 시작"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="12dp" />
+            </LinearLayout>
         </LinearLayout>
     </androidx.cardview.widget.CardView>
 
-
+    <!-- ====== 내비게이션: 상단 안내 카드 ====== -->
     <androidx.cardview.widget.CardView
         android:id="@+id/navTopCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_margin="16dp"
+        android:visibility="gone"
         app:cardBackgroundColor="#2196F3"
         app:cardCornerRadius="16dp"
         app:cardElevation="10dp"
-        android:visibility="gone"
         app:layout_constraintTop_toTopOf="parent">
 
         <TextView
@@ -174,14 +260,15 @@
             android:textStyle="bold" />
     </androidx.cardview.widget.CardView>
 
+    <!-- ====== 내비게이션: 하단 정보 카드 ====== -->
     <androidx.cardview.widget.CardView
         android:id="@+id/navBottomCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_margin="16dp"
+        android:visibility="gone"
         app:cardCornerRadius="16dp"
         app:cardElevation="10dp"
-        android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent">
 
         <LinearLayout
@@ -208,6 +295,93 @@
                 android:backgroundTint="#F44336"
                 android:text="안내 종료" />
         </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/fabAiGuide"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="100dp"
+        android:text="AI 주변 보기"
+        android:textColor="@android:color/white"
+        android:visibility="gone"
+        app:backgroundTint="#4CAF50"
+        app:icon="@drawable/ic_camera"
+        app:iconTint="@android:color/white"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <androidx.cardview.widget.CardView
+        android:id="@+id/cvAiCameraLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_margin="24dp"
+        android:visibility="gone"
+        app:cardCornerRadius="24dp"
+        app:cardElevation="16dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#000000">
+
+            <androidx.camera.view.PreviewView
+                android:id="@+id/viewFinder"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <ImageView
+                android:id="@+id/ivSelectedImage"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvAiCameraStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top"
+                android:background="#99000000"
+                android:padding="16dp"
+                android:text="전방을 비춰주세요... (4초 뒤 자동 촬영)"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp" />
+
+            <ProgressBar
+                android:id="@+id/progressBarAi"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|center_horizontal"
+                android:layout_marginBottom="24dp"
+                android:orientation="horizontal">
+
+                <!-- 새로 추가된 수동 촬영 버튼 -->
+                <Button
+                    android:id="@+id/btnManualCapture"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:backgroundTint="#4CAF50"
+                    android:text="📷 촬영하기" />
+
+                <Button
+                    android:id="@+id/btnTestGallery"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:backgroundTint="#DE6F3F"
+                    android:text="가상 테스트(갤러리)" />
+            </LinearLayout>
+        </FrameLayout>
     </androidx.cardview.widget.CardView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

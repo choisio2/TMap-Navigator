@@ -1,4 +1,4 @@
-package com.aivy.navigator.data.network
+package com.aivy.navigator.data.model
 
 import com.google.gson.annotations.SerializedName
 

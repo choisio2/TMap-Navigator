@@ -1,7 +1,6 @@
-package com.aivy.navigator.data.network
+package com.aivy.navigator.data.model
 
 import com.google.gson.JsonElement
-import com.google.gson.annotations.SerializedName
 import com.skt.Tmap.TMapPoint
 
 // API 요청용 Body

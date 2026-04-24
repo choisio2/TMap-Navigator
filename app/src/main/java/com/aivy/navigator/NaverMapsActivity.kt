@@ -1,6 +1,5 @@
 package com.aivy.navigator
 
-import android.Manifest
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -16,13 +15,19 @@ import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.overlay.PathOverlay
 import android.graphics.Color
 import androidx.lifecycle.lifecycleScope
-import com.aivy.navigator.data.model.DirectionPath
 import com.aivy.navigator.data.network.RetrofitClient
-import com.aivy.navigator.data.network.RouteStep
-import com.skt.Tmap.TMapPoint
-import kotlinx.coroutines.Dispatchers
+import com.aivy.navigator.data.model.RouteStep
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import android.widget.ImageView
+import androidx.appcompat.app.AlertDialog
+import com.naver.maps.map.overlay.Marker
+import kotlinx.coroutines.Dispatchers
+import com.aivy.navigator.data.model.NaverGeocodeAddress
+
 
 class NaverMapsActivity : AppCompatActivity(), OnMapReadyCallback {
 
@@ -43,13 +48,18 @@ class NaverMapsActivity : AppCompatActivity(), OnMapReadyCallback {
     // 안내 정보를 담을 리스트 (기존 RouteStep 재사용)
     private val routeSteps = mutableListOf<RouteStep>()
 
+    // === 검색 및 목적지 관련 ===
+    private lateinit var etSearch: EditText
+    private lateinit var btnSearch: ImageView
+    private var destinationMarker: Marker? = null
+    private var destinationLatLng: LatLng? = null
 
     // =============== onCreate ===============
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // 네이버 지도 인증
-        NaverMapSdk.getInstance(this).client = NaverMapSdk.NcpKeyClient("NAVER_CLIENT_ID")
+        NaverMapSdk.getInstance(this).client = NaverMapSdk.NcpKeyClient("s23srtgglv")
 
         setContentView(R.layout.activity_naver_maps)
 
@@ -84,6 +94,32 @@ class NaverMapsActivity : AppCompatActivity(), OnMapReadyCallback {
 
         if (rotationVectorSensor == null) {
             Toast.makeText(this, "이 기기에는 방향 센서가 없습니다.", Toast.LENGTH_SHORT).show()
+        }
+
+        // 검색창 UI 연결 (XML의 ID와 동일해야 합니다!)
+        // XML에서 TextView로 되어있다면 EditText로 꼭 변경해주세요.
+        etSearch = findViewById(R.id.etSearch)
+        btnSearch = findViewById(R.id.btnSearch) // 돋보기 아이콘
+
+        // 검색 버튼 클릭 시
+        btnSearch.setOnClickListener {
+            val query = etSearch.text.toString().trim()
+            if (query.isNotEmpty()) {
+                hideKeyboard()
+                searchAddressWithNaver(query)
+            }
+        }
+
+        // 키보드 엔터(검색) 눌렀을 때
+        etSearch.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                val query = etSearch.text.toString().trim()
+                if (query.isNotEmpty()) {
+                    hideKeyboard()
+                    searchAddressWithNaver(query)
+                }
+                true
+            } else false
         }
     }
 
@@ -198,5 +234,78 @@ class NaverMapsActivity : AppCompatActivity(), OnMapReadyCallback {
 
     companion object {
         private const val LOCATION_PERMISSION_REQUEST_CODE = 1000
+    }
+
+
+    // 키보드 내리기
+    private fun hideKeyboard() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(etSearch.windowToken, 0)
+    }
+
+    // 네이버 Geocoding API 통신
+    private fun searchAddressWithNaver(query: String) {
+        val clientId = "s23srtgglv"
+        val clientSecret = "Wby93FLVv0oFRaJinfzxi1ESif27EWuVb9dmud9a"
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val response = RetrofitClient.naverService.getGeocode(clientId, clientSecret, query)
+
+                withContext(Dispatchers.Main) {
+                    if (response.isSuccessful && response.body() != null) {
+                        val body = response.body()!!
+                        val addresses = body.addresses
+
+                        if (body.status == "OK" && !addresses.isNullOrEmpty()) {
+                            showSearchResults(addresses)
+                        } else {
+                            Toast.makeText(this@NaverMapsActivity, "주소를 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(this@NaverMapsActivity, "검색 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Log.e("NAVER_GEO", "주소 검색 오류", e)
+                    Toast.makeText(this@NaverMapsActivity, "통신 오류", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // 다이얼로그 띄우고 마커 찍기
+    private fun showSearchResults(items: List<NaverGeocodeAddress>) {
+        val names = items.map { it.roadAddress.ifEmpty { it.jibunAddress } }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("주소 검색 결과")
+            .setItems(names) { _, index ->
+                val selectedAddr = items[index]
+                // 네이버 응답 x=경도(lon), y=위도(lat)
+                val lat = selectedAddr.y.toDoubleOrNull() ?: return@setItems
+                val lon = selectedAddr.x.toDoubleOrNull() ?: return@setItems
+
+                destinationLatLng = LatLng(lat, lon)
+                etSearch.setText(names[index])
+
+                // 기존 마커 지우고 새로 찍기
+                destinationMarker?.map = null
+                destinationMarker = Marker().apply {
+                    position = destinationLatLng!!
+                    map = naverMap
+                    iconTintColor = Color.RED // 목적지는 빨간색!
+                }
+
+                // 목적지로 카메라 이동
+                val cameraUpdate = CameraUpdate.scrollTo(destinationLatLng!!)
+                    .animate(CameraAnimation.Easing)
+                naverMap.moveCamera(cameraUpdate)
+
+                Toast.makeText(this, "목적지가 설정되었습니다.", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("취소", null)
+            .show()
     }
 }

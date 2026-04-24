@@ -1,8 +1,10 @@
+import org.jetbrains.kotlin.gradle.utils.loadPropertyFromResources
 import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.compose.compiler)
 }
 
 val localProperties = Properties().apply {
@@ -23,13 +25,15 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         //manifestPlaceholders["naverClientId"] = localProperties.getProperty("NAVER_CLIENT_ID", "")
-
+        buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\"")
         buildConfigField("String", "TMAP_APP_KEY", "\"${localProperties.getProperty("TMAP_APP_KEY", "")}\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"${localProperties.getProperty("OPENAI_API_KEY", "")}\"")
     }
 
     buildFeatures {
         buildConfig = true
+        viewBinding = true
+        compose = true
     }
 
     buildTypes {
@@ -51,6 +55,21 @@ android {
 }
 
 dependencies {
+    // jetpack 관련
+    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
+    implementation(composeBom)
+
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.material3:material3") // Material Design 3
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.activity:activity-compose:1.8.2") // Compose Activity
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0") // Compose ViewModel
+
+    // 디버깅/미리보기 용도
+    debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // -----------------------------
+
     // TMap SDK (JAR from libs/)
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
 
@@ -93,4 +112,14 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+
+    // Camera X
+    val camerax_version = "1.3.0"
+    implementation("androidx.camera:camera-core:${camerax_version}")
+    implementation("androidx.camera:camera-camera2:${camerax_version}")
+    implementation("androidx.camera:camera-lifecycle:${camerax_version}")
+    implementation("androidx.camera:camera-view:${camerax_version}")
+
+    // Gemini AI Android SDK (Google 공식 SDK)
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 }
