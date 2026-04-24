@@ -21,6 +21,9 @@
             android:name=".CameraActivity"
             android:exported="false" />
         <activity
+            android:name=".RunningActivity"
+            android:exported="false" />
+        <activity
             android:name=".TmapsActivity"
             android:exported="true" />
 

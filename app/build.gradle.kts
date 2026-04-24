@@ -4,6 +4,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.compose.compiler)
 }
 
 val localProperties = Properties().apply {
@@ -32,6 +33,7 @@ android {
     buildFeatures {
         buildConfig = true
         viewBinding = true
+        compose = true
     }
 
     buildTypes {
@@ -53,6 +55,21 @@ android {
 }
 
 dependencies {
+    // jetpack 관련
+    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
+    implementation(composeBom)
+
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.material3:material3") // Material Design 3
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.activity:activity-compose:1.8.2") // Compose Activity
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0") // Compose ViewModel
+
+    // 디버깅/미리보기 용도
+    debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // -----------------------------
+
     // TMap SDK (JAR from libs/)
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
 

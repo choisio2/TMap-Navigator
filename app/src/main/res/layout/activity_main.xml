@@ -36,21 +36,6 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/tvTitle" />
 
-
-    <Button
-        android:id="@+id/btnNaverMaps"
-        android:layout_width="220dp"
-        android:layout_height="55dp"
-        app:backgroundTint="@null"
-        android:backgroundTint="#44D34A"
-        android:text="네이버 지도 열기"
-        android:textColor="@color/white"
-        android:textSize="15sp"
-        android:layout_marginTop="50dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tvSubtitle" />
-
     <Button
         android:id="@+id/btnTmap"
         android:layout_width="220dp"
@@ -60,19 +45,19 @@
         android:text="TMap으로 길찾기"
         android:textColor="@color/white"
         android:textSize="15sp"
-        android:layout_marginTop="20dp"
+        android:layout_marginTop="50dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/btnNaverMaps" />
+        app:layout_constraintTop_toBottomOf="@id/tvSubtitle" />
 
 
     <Button
-        android:id="@+id/btnCamera"
-        android:layout_width="300dp"
+        android:id="@+id/btnRunning"
+        android:layout_width="220dp"
         android:layout_height="55dp"
         app:backgroundTint="@null"
-        android:backgroundTint="#F49F29"
-        android:text="카메라 및 Gemini Flash 테스트"
+        android:backgroundTint="#8BC34A"
+        android:text="Running"
         android:textColor="@color/white"
         android:textSize="15sp"
         android:layout_marginTop="20dp"
