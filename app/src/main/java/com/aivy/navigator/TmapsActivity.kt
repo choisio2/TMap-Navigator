@@ -30,6 +30,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -42,12 +43,15 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.AddLocationAlt
+import androidx.compose.material.icons.outlined.Map
+import androidx.compose.material.icons.outlined.MyLocation
+import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +66,10 @@ import com.aivy.navigator.data.model.PoiItem
 import com.aivy.navigator.data.model.RouteFeature
 import com.aivy.navigator.data.model.RouteStep
 import com.aivy.navigator.data.network.RetrofitClient
+import com.aivy.navigator.ui.theme.AivyColors
+import com.aivy.navigator.ui.theme.AivyRadius
+import com.aivy.navigator.ui.theme.AivySpace
+import com.aivy.navigator.ui.theme.AivyTheme
 import com.google.android.gms.location.*
 import com.skt.Tmap.TMapMarkerItem
 import com.skt.Tmap.TMapPoint
@@ -177,7 +185,9 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         )
 
         setContent {
-            NavigationScreen()
+            AivyTheme {
+                NavigationScreen()
+            }
         }
     }
 
@@ -741,118 +751,191 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             )
 
             if (!uiStateIsNavigating && !uiStateShowAiCamera) {
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(30.dp).align(Alignment.TopCenter),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(4.dp)
+                Surface(
+                    color = AivyColors.Surface.copy(alpha = 0.92f),
+                    shape = RoundedCornerShape(50.dp),
+                    shadowElevation = 4.dp,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(bottom = 160.dp),
                 ) {
-                    OutlinedTextField(
-                        value = uiStateSearchQuery,
-                        onValueChange = { uiStateSearchQuery = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("어디로 갈까요?", color = Color.Gray) },
-                        leadingIcon = {
-                            IconButton(onClick = { finish() }) {
-                                Icon(Icons.Default.Close, contentDescription = "닫기")
-                            }
-                        },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = {
-                                    focusManager.clearFocus()
-                                    if (uiStateSearchQuery.isNotEmpty()) searchPOI(uiStateSearchQuery)
-                                }
-                            ) {
-                                Icon(Icons.Default.Search, contentDescription = "검색", tint = Color(0xFF102841))
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent
-                        ),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(
-                            onSearch = {
-                                focusManager.clearFocus()
-                                if (uiStateSearchQuery.isNotEmpty()) searchPOI(uiStateSearchQuery)
-                            }
-                        ),
-                        singleLine = true
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = AivySpace.Md, vertical = AivySpace.Sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.MyLocation, contentDescription = null, tint = AivyColors.Accent, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(AivySpace.Xs))
+                        Text("현재 위치", style = MaterialTheme.typography.bodySmall, color = AivyColors.Accent)
+                    }
                 }
 
-                if (uiStateIsRouteReady) {
-                    Card(
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter),
+                    color = AivyColors.Surface,
+                    shape = RoundedCornerShape(topStart = AivyRadius.Xl, topEnd = AivyRadius.Xl),
+                    shadowElevation = 10.dp,
+                ) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(16.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        elevation = CardDefaults.cardElevation(8.dp)
+                            .padding(horizontal = AivySpace.Page, vertical = AivySpace.Lg),
                     ) {
-                        Column(modifier = Modifier.padding(24.dp)) {
-                            Text("최적 도보 경로", fontSize = 14.sp, color = Color(0xFF1976D2), fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(uiStateRouteSummary, fontSize = 24.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .width(38.dp)
+                                .height(4.dp)
+                                .background(AivyColors.Border, RoundedCornerShape(2.dp)),
+                        )
+                        Spacer(modifier = Modifier.height(AivySpace.Md))
 
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Row(
+                        if (!uiStateIsRouteReady) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("어디로 갈까요?", style = MaterialTheme.typography.titleLarge, color = AivyColors.Primary)
+                                Spacer(modifier = Modifier.weight(1f))
+                                IconButton(onClick = { finish() }) {
+                                    Icon(Icons.Default.Close, contentDescription = "닫기", tint = AivyColors.Text3)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(AivySpace.Sm))
+                            OutlinedTextField(
+                                value = uiStateSearchQuery,
+                                onValueChange = { uiStateSearchQuery = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                placeholder = { Text("목적지를 검색하세요", color = AivyColors.Text4) },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = AivyColors.Text3) },
+                                trailingIcon = {
+                                    IconButton(
+                                        onClick = {
+                                            focusManager.clearFocus()
+                                            if (uiStateSearchQuery.isNotBlank()) searchPOI(uiStateSearchQuery)
+                                        }
+                                    ) {
+                                        Icon(Icons.Outlined.Route, contentDescription = "검색", tint = AivyColors.Primary)
+                                    }
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = AivyColors.Accent,
+                                    unfocusedBorderColor = AivyColors.Border,
+                                    focusedContainerColor = AivyColors.Surface,
+                                    unfocusedContainerColor = AivyColors.Surface,
+                                ),
+                                shape = RoundedCornerShape(AivyRadius.Md),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(
+                                    onSearch = {
+                                        focusManager.clearFocus()
+                                        if (uiStateSearchQuery.isNotBlank()) searchPOI(uiStateSearchQuery)
+                                    }
+                                ),
+                                singleLine = true,
+                            )
+                            Spacer(modifier = Modifier.height(AivySpace.Md))
+                            Row(horizontalArrangement = Arrangement.spacedBy(AivySpace.Sm)) {
+                                listOf("근처 카페", "약국", "지하철역").forEach { label ->
+                                    AssistChip(
+                                        onClick = { uiStateSearchQuery = label },
+                                        label = { Text(label) },
+                                        colors = AssistChipDefaults.assistChipColors(containerColor = AivyColors.BackgroundAlt, labelColor = AivyColors.Text2),
+                                        border = null,
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(AivySpace.Sm))
+                            Button(
+                                onClick = {
+                                    focusManager.clearFocus()
+                                    if (uiStateSearchQuery.isNotBlank()) searchPOI(uiStateSearchQuery)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(54.dp),
+                                enabled = uiStateSearchQuery.isNotBlank(),
+                                colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Primary),
+                                shape = RoundedCornerShape(AivyRadius.Lg),
+                            ) {
+                                Text("경로 검색", style = MaterialTheme.typography.titleMedium)
+                            }
+                            Spacer(modifier = Modifier.height(AivySpace.Sm))
+                            Text(
+                                text = "또는 AIVY 기기에 목적지를 말하세요",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AivyColors.Text4,
+                                modifier = Modifier.align(Alignment.CenterHorizontally),
+                            )
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(color = AivyColors.AccentLight, shape = RoundedCornerShape(AivyRadius.Md), modifier = Modifier.size(44.dp)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Outlined.Map, contentDescription = null, tint = AivyColors.Accent)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(AivySpace.Md))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("최적 도보 경로", style = MaterialTheme.typography.bodySmall, color = AivyColors.Accent)
+                                    Text(uiStateRouteSummary, style = MaterialTheme.typography.titleLarge, color = AivyColors.Text1)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(AivySpace.Md))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(AivyColors.BackgroundAlt, RoundedCornerShape(AivyRadius.Md))
+                                    .padding(AivySpace.Md),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     text = if (uiStateWaypointName.isEmpty()) "경유지 없음" else "경유지: $uiStateWaypointName",
-                                    fontSize = 14.sp,
-                                    color = Color.DarkGray
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = AivyColors.Text2,
+                                    modifier = Modifier.weight(1f),
                                 )
-                                if (uiStateWaypointName.isEmpty()) {
-                                    OutlinedButton(
-                                        onClick = { uiStateShowWaypointInputDialog = true },
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) { Text("+ 경유지", color = Color(0xFF4CAF50)) }
-                                } else {
-                                    OutlinedButton(
-                                        onClick = { clearWaypoint() },
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) { Text("경유지 삭제", color = Color(0xFFD32F2F)) }
+                                TextButton(onClick = {
+                                    if (uiStateWaypointName.isEmpty()) uiStateShowWaypointInputDialog = true else clearWaypoint()
+                                }) {
+                                    Icon(Icons.Outlined.AddLocationAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(AivySpace.Xs))
+                                    Text(if (uiStateWaypointName.isEmpty()) "추가" else "삭제")
                                 }
                             }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
+                            Spacer(modifier = Modifier.height(AivySpace.Sm))
                             Row(
-                                modifier = Modifier.fillMaxWidth().background(Color(0xFFFCFAEC), RoundedCornerShape(8.dp)).padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(AivyColors.WarningLight, RoundedCornerShape(AivyRadius.Md))
+                                    .padding(horizontal = AivySpace.Md, vertical = AivySpace.Sm),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("가상 주행 모드 (디버깅용)", fontSize = 14.sp, color = Color(0xFF1976D2), fontWeight = FontWeight.SemiBold)
+                                Text("가상 주행 모드", style = MaterialTheme.typography.bodyMedium, color = AivyColors.Warning, modifier = Modifier.weight(1f))
                                 Switch(
                                     checked = uiStateIsMockMode,
                                     onCheckedChange = { uiStateIsMockMode = it },
-                                    colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF1976D2), checkedTrackColor = Color(0xFF9EC6EE)
-                                    )
+                                    colors = SwitchDefaults.colors(checkedThumbColor = AivyColors.Accent, checkedTrackColor = AivyColors.AccentLight),
                                 )
                             }
-
-                            Spacer(modifier = Modifier.height(20.dp))
-
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Spacer(modifier = Modifier.height(AivySpace.Md))
+                            Row(horizontalArrangement = Arrangement.spacedBy(AivySpace.Sm), modifier = Modifier.fillMaxWidth()) {
                                 OutlinedButton(
                                     onClick = { cancelRoutePreview() },
-                                    modifier = Modifier.weight(1f).height(52.dp),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) { Text("취소", fontSize = 16.sp, color = Color.DarkGray) }
-
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(54.dp),
+                                    shape = RoundedCornerShape(AivyRadius.Lg),
+                                ) {
+                                    Text("취소", color = AivyColors.Text2)
+                                }
                                 Button(
                                     onClick = { startNavigation() },
-                                    modifier = Modifier.weight(2f).height(52.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2)),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) { Text("안내 시작", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                                    modifier = Modifier
+                                        .weight(2f)
+                                        .height(54.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Primary),
+                                    shape = RoundedCornerShape(AivyRadius.Lg),
+                                ) {
+                                    Text("안내 시작", style = MaterialTheme.typography.titleMedium)
+                                }
                             }
                         }
                     }
@@ -860,25 +943,37 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             if (uiStateIsNavigating && !uiStateShowAiCamera) {
-                Card(
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp)
+                        .padding(horizontal = AivySpace.Page, vertical = AivySpace.Lg)
                         .align(Alignment.TopCenter),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1976D2)),
-                    elevation = CardDefaults.cardElevation(8.dp)
+                    shape = RoundedCornerShape(AivyRadius.Lg),
+                    color = AivyColors.Primary,
+                    shadowElevation = 8.dp,
                 ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp).fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Row(
+                        modifier = Modifier
+                            .padding(AivySpace.Md)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        Surface(
+                            color = Color.White.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(AivyRadius.Md),
+                            modifier = Modifier.size(46.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Outlined.Route, contentDescription = null, tint = Color.White)
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(AivySpace.Md))
                         Text(
                             text = uiStateNavInstruction,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium,
                             color = Color.White,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
@@ -893,7 +988,7 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .padding(end = 16.dp),
-                        containerColor = Color(0xFFFF9800),
+                        containerColor = AivyColors.Warning,
                         contentColor = Color.White,
                         shape = CircleShape
                     ) {
@@ -901,25 +996,30 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     }
                 }
 
-                Card(
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp)
+                        .padding(AivySpace.Page)
                         .align(Alignment.BottomCenter),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(8.dp)
+                    shape = RoundedCornerShape(AivyRadius.Xl),
+                    color = AivyColors.Surface,
+                    shadowElevation = 8.dp,
                 ) {
                     Row(
-                        modifier = Modifier.padding(20.dp).fillMaxWidth(),
+                        modifier = Modifier
+                            .padding(AivySpace.Md)
+                            .fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(uiStateNavRemainDistance, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Column {
+                            Text("남은 거리", style = MaterialTheme.typography.bodySmall, color = AivyColors.Text4)
+                            Text(uiStateNavRemainDistance, style = MaterialTheme.typography.titleMedium, color = AivyColors.Text1)
+                        }
                         Button(
                             onClick = { showStopDialog() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                            shape = RoundedCornerShape(12.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Danger),
+                            shape = RoundedCornerShape(AivyRadius.Md)
                         ) { Text("안내 종료", fontWeight = FontWeight.Bold) }
                     }
                 }
@@ -935,7 +1035,7 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             bottom = if (uiStateIsRouteReady) 320.dp else if (uiStateIsNavigating) 120.dp else 40.dp
                         ),
                     containerColor = Color.White,
-                    contentColor = Color(0xFF1976D2),
+                    contentColor = AivyColors.Accent,
                     shape = CircleShape,
                     elevation = FloatingActionButtonDefaults.elevation(4.dp)
                 ) {
@@ -1008,14 +1108,18 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             if (uiStateShowSearchDialog) {
                 AlertDialog(
                     onDismissRequest = { uiStateShowSearchDialog = false },
-                    title = { Text("어느 곳으로 갈까요?", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.Black) },
+                    title = { Text("어느 곳으로 갈까요?", style = MaterialTheme.typography.titleMedium, color = AivyColors.Primary) },
                     text = {
                         LazyColumn {
                             items(uiStateSearchResults) { item ->
+                                val rowInteractionSource = remember { MutableInteractionSource() }
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable {
+                                        .clickable(
+                                            interactionSource = rowInteractionSource,
+                                            indication = null,
+                                        ) {
                                             uiStateShowSearchDialog = false
                                             if (isSearchingForWaypoint) {
                                                 setWaypointMarker(item)
@@ -1025,33 +1129,35 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                         }
                                         .padding(vertical = 14.dp)
                                 ) {
-                                    Text(item.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.Black)
+                                    Text(item.name, style = MaterialTheme.typography.titleMedium, color = AivyColors.Text1)
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text(item.getFullAddress(), fontSize = 13.sp, color = Color.Gray)
+                                    Text(item.getFullAddress(), style = MaterialTheme.typography.bodySmall, color = AivyColors.Text3)
                                 }
-                                Divider(color = Color(0xFFEEEEEE), thickness = 1.dp)
+                                Divider(color = AivyColors.Border, thickness = 1.dp)
                             }
                         }
                     },
                     confirmButton = {
                         TextButton(onClick = { uiStateShowSearchDialog = false }) {
-                            Text("취소", color = Color(0xFF6200EE), fontWeight = FontWeight.Bold)
+                            Text("취소", color = AivyColors.Accent, fontWeight = FontWeight.Bold)
                         }
                     },
-                    containerColor = Color.White
+                    containerColor = AivyColors.Surface,
+                    shape = RoundedCornerShape(AivyRadius.Lg),
                 )
             }
 
             if (uiStateShowWaypointInputDialog) {
                 AlertDialog(
                     onDismissRequest = { uiStateShowWaypointInputDialog = false },
-                    title = { Text("경유지 추가", fontWeight = FontWeight.Bold, color = Color.Black) },
+                    title = { Text("경유지 추가", style = MaterialTheme.typography.titleMedium, color = AivyColors.Primary) },
                     text = {
                         OutlinedTextField(
                             value = uiStateWaypointQuery,
                             onValueChange = { uiStateWaypointQuery = it },
                             modifier = Modifier.fillMaxWidth(),
                             placeholder = { Text("경유지를 입력하세요") },
+                            shape = RoundedCornerShape(AivyRadius.Md),
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(
@@ -1072,13 +1178,15 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                     searchPOI(uiStateWaypointQuery, true)
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                            colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Primary),
+                            shape = RoundedCornerShape(AivyRadius.Md),
                         ) { Text("검색", fontWeight = FontWeight.Bold) }
                     },
                     dismissButton = {
-                        TextButton(onClick = { uiStateShowWaypointInputDialog = false }) { Text("취소", color = Color.Gray) }
+                        TextButton(onClick = { uiStateShowWaypointInputDialog = false }) { Text("취소", color = AivyColors.Text3) }
                     },
-                    containerColor = Color.White
+                    containerColor = AivyColors.Surface,
+                    shape = RoundedCornerShape(AivyRadius.Lg),
                 )
             }
         }

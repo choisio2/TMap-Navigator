@@ -25,6 +25,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -50,6 +52,11 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.aivy.navigator.ui.components.AivyStatusChip
+import com.aivy.navigator.ui.theme.AivyColors
+import com.aivy.navigator.ui.theme.AivyRadius
+import com.aivy.navigator.ui.theme.AivySpace
+import com.aivy.navigator.ui.theme.AivyTheme
 import com.google.android.gms.location.*
 import com.skt.Tmap.TMapMarkerItem
 import com.skt.Tmap.TMapPoint
@@ -324,6 +331,7 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         )
 
         setContent {
+            AivyTheme {
             val viewModel: RunningViewModel = viewModel()
 
             val tMapView = remember {
@@ -390,6 +398,7 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 onStopGps = { fusedLocationClient.removeLocationUpdates(locationCallback) },
                 onMyLocationClick = { fetchCurrentLocation(tMapView) }
             )
+            }
         }
     }
 
@@ -469,6 +478,7 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 // Compose UI
 // ==========================================
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RunningScreen(
     viewModel: RunningViewModel,
@@ -478,7 +488,8 @@ fun RunningScreen(
     onMyLocationClick: () -> Unit
 ) {
     val context = LocalContext.current
-    var showMainMenu by remember { mutableStateOf(false) }
+    var showCourseSheet by remember { mutableStateOf(false) }
+    val coachingMessage = rememberRunCoachingMessage(viewModel)
 
     // 운동 완료 -> 데이터 요약 화면으로 전환 -> 러닝홈으로
     if (viewModel.runState == RunState.FINISHED) {
@@ -525,23 +536,14 @@ fun RunningScreen(
             }
         )
 
-        // 상단 데이터 대시보드
-        Column(
+        LiveRunDashboard(
+            viewModel = viewModel,
+            coachingMessage = coachingMessage,
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp))
-                .padding(top = 40.dp, bottom = 24.dp, start = 16.dp, end = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(text = "러닝 거리", fontSize = 14.sp, color = Color.Gray)
-            Text(text = String.format("%.2f km", viewModel.distance), fontSize = 64.sp, fontWeight = FontWeight.Black, color = Color(0xFF212121))
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                RunningDataItem("시간", formatSeconds(viewModel.timeElapsed))
-                RunningDataItem("페이스", viewModel.calculatePace())
-            }
-        }
+                .padding(horizontal = AivySpace.Page, vertical = AivySpace.Lg)
+                .align(Alignment.TopCenter),
+        )
 
         // 우측 부가 기능 메뉴
         Box(
@@ -552,32 +554,12 @@ fun RunningScreen(
         ) {
             Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
                 Button(
-                    onClick = { showMainMenu = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                    onClick = { showCourseSheet = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Surface),
+                    shape = RoundedCornerShape(AivyRadius.Lg),
                     elevation = ButtonDefaults.elevatedButtonElevation(6.dp)
                 ) {
-                    Text("➕ 더 많은 기능", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
-
-                DropdownMenu(
-                    expanded = showMainMenu,
-                    onDismissRequest = { showMainMenu = false },
-                    modifier = Modifier.background(Color.White)
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("🌍 새로운 코스 가져오기", fontWeight = FontWeight.Bold) },
-                        onClick = {
-                            showMainMenu = false
-                            viewModel.showAllCoursesDialog = true
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("♥️ 저장한 코스 불러오기", fontWeight = FontWeight.Bold) },
-                        onClick = {
-                            showMainMenu = false
-                            viewModel.showSavedCoursesDialog = true
-                        }
-                    )
+                    Text("코스", color = AivyColors.Primary, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -589,62 +571,27 @@ fun RunningScreen(
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 40.dp),
             containerColor = Color.White,
-            contentColor = Color(0xFF1976D2),
+            contentColor = AivyColors.Accent,
             shape = CircleShape,
             elevation = FloatingActionButtonDefaults.elevation(4.dp)
         ) {
             Icon(Icons.Default.LocationOn, contentDescription = "내 위치로 이동", modifier = Modifier.size(28.dp))
         }
 
-        // 하단 컨트롤 박스
-        Box(
+        RunControlDock(
+            runState = viewModel.runState,
+            coachingMessage = coachingMessage,
+            onStart = { viewModel.startCountdown(onStartGps) },
+            onPause = { viewModel.pauseRunning() },
+            onResume = { viewModel.resumeRunning() },
+            onStop = {
+                viewModel.stopRunning()
+                onStopGps()
+            },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 40.dp)
-        ) {
-            when (viewModel.runState) {
-                RunState.INIT -> {
-                    Button(
-                        onClick = { viewModel.startCountdown(onStartGps) },
-                        modifier = Modifier.size(width = 150.dp, height = 60.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
-                    ) { Text("시작", fontSize = 24.sp, fontWeight = FontWeight.Bold) }
-                }
-                RunState.RUNNING -> {
-                    Button(
-                        onClick = { viewModel.pauseRunning() },
-                        modifier = Modifier.size(width = 150.dp, height = 60.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800))
-                    ) { Text("일시정지", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-                }
-                RunState.PAUSED -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Button(
-                            onClick = { viewModel.resumeRunning() },
-                            modifier = Modifier.size(width = 120.dp, height = 60.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
-                        ) { Text("재개", fontSize = 18.sp) }
-
-                        Button(
-                            onClick = {
-                                viewModel.stopRunning()
-                                onStopGps()
-                            },
-                            modifier = Modifier.size(width = 120.dp, height = 60.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF44336))
-                        ) { Text("종료", fontSize = 18.sp) }
-                    }
-                }
-                RunState.STOPPED -> {
-                    Button(
-                        onClick = { /* 추후 완료 후속 처리 구성 가능 */ },
-                        modifier = Modifier.size(width = 200.dp, height = 60.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
-                    ) { Text("러닝 완료", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-                }
-                else -> {}
-            }
-        }
+                .padding(horizontal = AivySpace.Page, vertical = AivySpace.Xl),
+        )
 
         // 카운트다운 영역
         if (viewModel.runState == RunState.COUNTDOWN) {
@@ -664,6 +611,20 @@ fun RunningScreen(
     // ==========================================
     val savedCourses by viewModel.savedCoursesFlow.collectAsState()
     val savedIds = savedCourses.map { it.resId }
+
+    if (showCourseSheet) {
+        CourseActionSheet(
+            onDismiss = { showCourseSheet = false },
+            onOpenAllCourses = {
+                showCourseSheet = false
+                viewModel.showAllCoursesDialog = true
+            },
+            onOpenSavedCourses = {
+                showCourseSheet = false
+                viewModel.showSavedCoursesDialog = true
+            },
+        )
+    }
 
     // 새로운 코스 목록 가져오기 다이얼로그
     if (viewModel.showAllCoursesDialog) {
@@ -728,13 +689,266 @@ fun RunningScreen(
     }
 }
 
+@Composable
+private fun LiveRunDashboard(
+    viewModel: RunningViewModel,
+    coachingMessage: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = AivyColors.Surface.copy(alpha = 0.94f),
+        shape = RoundedCornerShape(AivyRadius.Xl),
+        shadowElevation = 8.dp,
+    ) {
+        Column(modifier = Modifier.padding(AivySpace.Card)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                AivyStatusChip(
+                    text = runStateLabel(viewModel.runState),
+                    container = runStateContainer(viewModel.runState),
+                    content = runStateContent(viewModel.runState),
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text("AIVY Run Coach", style = MaterialTheme.typography.bodySmall, color = AivyColors.Text4)
+            }
+
+            Spacer(modifier = Modifier.height(AivySpace.Sm))
+            Text("거리", style = MaterialTheme.typography.bodySmall, color = AivyColors.Text4)
+            Text(
+                text = String.format(Locale.US, "%.2f", viewModel.distance),
+                fontSize = 62.sp,
+                lineHeight = 66.sp,
+                fontWeight = FontWeight.Black,
+                color = AivyColors.Text1,
+            )
+            Text("km", style = MaterialTheme.typography.bodySmall, color = AivyColors.Text4)
+
+            Spacer(modifier = Modifier.height(AivySpace.Md))
+            Row(horizontalArrangement = Arrangement.spacedBy(AivySpace.Sm), modifier = Modifier.fillMaxWidth()) {
+                LiveMetricTile("시간", formatSeconds(viewModel.timeElapsed), Modifier.weight(1f))
+                LiveMetricTile("현재 페이스", viewModel.calculatePace(), Modifier.weight(1f))
+            }
+            Spacer(modifier = Modifier.height(AivySpace.Sm))
+            Row(horizontalArrangement = Arrangement.spacedBy(AivySpace.Sm), modifier = Modifier.fillMaxWidth()) {
+                LiveMetricTile("평균 페이스", viewModel.calculatePace(), Modifier.weight(1f))
+                LiveMetricTile("칼로리", "${viewModel.calculateCalories()} kcal", Modifier.weight(1f))
+            }
+
+            Spacer(modifier = Modifier.height(AivySpace.Md))
+            Surface(
+                color = AivyColors.AccentLight,
+                shape = RoundedCornerShape(AivyRadius.Md),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = coachingMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = AivyColors.Primary,
+                    modifier = Modifier.padding(horizontal = AivySpace.Md, vertical = AivySpace.Sm),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveMetricTile(label: String, value: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        color = AivyColors.BackgroundAlt,
+        shape = RoundedCornerShape(AivyRadius.Md),
+    ) {
+        Column(modifier = Modifier.padding(AivySpace.Sm)) {
+            Text(label, style = MaterialTheme.typography.bodySmall, color = AivyColors.Text4, maxLines = 1)
+            Text(value, style = MaterialTheme.typography.titleMedium, color = AivyColors.Text1, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun RunControlDock(
+    runState: RunState,
+    coachingMessage: String,
+    onStart: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = AivyColors.Surface.copy(alpha = 0.96f),
+        shape = RoundedCornerShape(AivyRadius.Xl),
+        shadowElevation = 8.dp,
+    ) {
+        Column(modifier = Modifier.padding(AivySpace.Card)) {
+            Text("코칭", style = MaterialTheme.typography.bodySmall, color = AivyColors.Text4)
+            Text(
+                text = coachingMessage,
+                style = MaterialTheme.typography.bodyMedium,
+                color = AivyColors.Text2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.height(AivySpace.Md))
+
+            when (runState) {
+                RunState.INIT -> {
+                    Button(
+                        onClick = onStart,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Primary),
+                        shape = RoundedCornerShape(AivyRadius.Lg),
+                    ) { Text("러닝 시작", style = MaterialTheme.typography.titleMedium) }
+                }
+                RunState.RUNNING -> {
+                    Button(
+                        onClick = onPause,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Warning),
+                        shape = RoundedCornerShape(AivyRadius.Lg),
+                    ) { Text("일시정지", style = MaterialTheme.typography.titleMedium) }
+                }
+                RunState.PAUSED -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(AivySpace.Sm), modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            onClick = onResume,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(58.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Positive),
+                            shape = RoundedCornerShape(AivyRadius.Lg),
+                        ) { Text("재개", style = MaterialTheme.typography.titleMedium) }
+                        Button(
+                            onClick = onStop,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(58.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Danger),
+                            shape = RoundedCornerShape(AivyRadius.Lg),
+                        ) { Text("종료", style = MaterialTheme.typography.titleMedium) }
+                    }
+                }
+                RunState.STOPPED -> {
+                    Button(
+                        onClick = onStop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(58.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Text3),
+                        shape = RoundedCornerShape(AivyRadius.Lg),
+                    ) { Text("러닝 완료", style = MaterialTheme.typography.titleMedium) }
+                }
+                RunState.COUNTDOWN,
+                RunState.FINISHED,
+                -> Unit
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CourseActionSheet(
+    onDismiss: () -> Unit,
+    onOpenAllCourses: () -> Unit,
+    onOpenSavedCourses: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AivySpace.Page, vertical = AivySpace.Sm),
+            verticalArrangement = Arrangement.spacedBy(AivySpace.Sm),
+        ) {
+            Text("코스 불러오기", style = MaterialTheme.typography.titleLarge, color = AivyColors.Primary)
+            Text("추천 코스나 저장한 GPX 코스를 지도 위에 불러옵니다.", style = MaterialTheme.typography.bodyMedium, color = AivyColors.Text3)
+            Spacer(modifier = Modifier.height(AivySpace.Sm))
+            Button(
+                onClick = onOpenAllCourses,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Primary),
+                shape = RoundedCornerShape(AivyRadius.Lg),
+            ) {
+                Text("새로운 코스 가져오기", style = MaterialTheme.typography.titleMedium)
+            }
+            OutlinedButton(
+                onClick = onOpenSavedCourses,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+                shape = RoundedCornerShape(AivyRadius.Lg),
+            ) {
+                Text("저장한 코스 불러오기", style = MaterialTheme.typography.titleMedium, color = AivyColors.Primary)
+            }
+            Spacer(modifier = Modifier.height(AivySpace.Xl))
+        }
+    }
+}
+
+@Composable
+private fun rememberRunCoachingMessage(viewModel: RunningViewModel): String {
+    return when (viewModel.runState) {
+        RunState.INIT -> "오늘은 5km 이지런으로 시작하세요. 첫 1km는 천천히 몸을 여세요."
+        RunState.COUNTDOWN -> "곧 출발합니다. 어깨 힘을 빼고 시선은 정면에 두세요."
+        RunState.RUNNING -> when {
+            viewModel.distance < 1.0 -> "초반 페이스를 낮게 유지하세요. 호흡이 안정되면 자연스럽게 올립니다."
+            viewModel.distance < 3.0 -> "페이스 안정적입니다. 다음 1km도 같은 리듬을 유지하세요."
+            else -> "후반 구간입니다. 보폭보다 케이던스를 일정하게 유지하세요."
+        }
+        RunState.PAUSED -> "일시정지 중입니다. 호흡이 돌아오면 재개하고, 무리하면 종료하세요."
+        RunState.STOPPED -> "러닝이 정지되었습니다. 기록을 저장하려면 종료를 눌러주세요."
+        RunState.FINISHED -> "운동 완료. 회복을 위해 5분 정도 천천히 걸어주세요."
+    }
+}
+
+private fun runStateLabel(runState: RunState): String = when (runState) {
+    RunState.INIT -> "준비"
+    RunState.COUNTDOWN -> "카운트다운"
+    RunState.RUNNING -> "러닝 중"
+    RunState.PAUSED -> "일시정지"
+    RunState.STOPPED -> "정지"
+    RunState.FINISHED -> "완료"
+}
+
+private fun runStateContainer(runState: RunState): Color = when (runState) {
+    RunState.RUNNING -> AivyColors.PositiveLight
+    RunState.PAUSED,
+    RunState.COUNTDOWN,
+    -> AivyColors.WarningLight
+    RunState.STOPPED -> AivyColors.DangerLight
+    else -> AivyColors.AccentLight
+}
+
+private fun runStateContent(runState: RunState): Color = when (runState) {
+    RunState.RUNNING -> AivyColors.Positive
+    RunState.PAUSED,
+    RunState.COUNTDOWN,
+    -> AivyColors.Warning
+    RunState.STOPPED -> AivyColors.Danger
+    else -> AivyColors.Accent
+}
+
 // 다이얼로그 내 개별 코스 항목 UI
 @Composable
 fun CourseListItem(courseName: String, isSaved: Boolean, onItemClick: () -> Unit, onBookmarkClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onItemClick() }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+            ) { onItemClick() }
             .padding(vertical = 12.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -757,8 +971,8 @@ fun CourseListItem(courseName: String, isSaved: Boolean, onItemClick: () -> Unit
 @Composable
 fun RunningDataItem(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = label, fontSize = 14.sp, color = Color.Gray)
-        Text(text = value, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFF212121))
+        Text(text = label, style = MaterialTheme.typography.bodySmall, color = AivyColors.Text4)
+        Text(text = value, style = MaterialTheme.typography.titleLarge, color = AivyColors.Text1)
     }
 }
 
@@ -768,88 +982,96 @@ fun RunningDataItem(label: String, value: String) {
 @Composable
 fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
     val lastSession = viewModel.lastWorkoutRecord
+    val distanceText = String.format(Locale.US, "%.2f", viewModel.distance)
+    val timeText = formatSeconds(viewModel.timeElapsed)
+    val paceText = viewModel.calculatePace()
+    val caloriesText = viewModel.calculateCalories().toString()
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().background(Color(0xFFF7F8FA)).padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AivyColors.Background)
+            .padding(AivySpace.Page),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(AivySpace.Lg),
     ) {
-        // 상단 타이틀 및 아이콘
         item {
             Spacer(modifier = Modifier.height(32.dp))
             Box(
-                modifier = Modifier.size(70.dp).background(Color(0xFFE8F5E9), CircleShape),
-                contentAlignment = Alignment.Center
+                modifier = Modifier
+                    .size(72.dp)
+                    .background(AivyColors.PositiveLight, CircleShape),
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(32.dp))
+                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = AivyColors.Positive, modifier = Modifier.size(34.dp))
             }
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("운동 완료!", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
-            Spacer(modifier = Modifier.height(30.dp))
+            Spacer(modifier = Modifier.height(AivySpace.Md))
+            Text("운동 완료", style = MaterialTheme.typography.displayLarge, color = AivyColors.Primary)
+            Text(
+                text = completionHeadline(viewModel.distance, viewModel.timeElapsed),
+                style = MaterialTheme.typography.bodyMedium,
+                color = AivyColors.Text3,
+            )
         }
 
-        // 통계 요약 카드
         item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.cardElevation(2.dp)
-            ) {
-                Column(modifier = Modifier.padding(24.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                        SummaryItem("거리", String.format("%.2f", viewModel.distance), "km")
-                        SummaryItem("시간", formatSeconds(viewModel.timeElapsed), "")
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                        SummaryItem("평균", viewModel.calculatePace(), "")
-                        SummaryItem("칼로리", viewModel.calculateCalories().toString(), "kcal")
-                    }
+            Column(verticalArrangement = Arrangement.spacedBy(AivySpace.Sm), modifier = Modifier.fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(AivySpace.Sm), modifier = Modifier.fillMaxWidth()) {
+                    SummaryMetricCard("거리", distanceText, "km", AivyColors.Primary, Modifier.weight(1f))
+                    SummaryMetricCard("시간", timeText, "", AivyColors.Accent, Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(AivySpace.Sm), modifier = Modifier.fillMaxWidth()) {
+                    SummaryMetricCard("평균 페이스", paceText, "/km", AivyColors.Positive, Modifier.weight(1f))
+                    SummaryMetricCard("칼로리", caloriesText, "kcal", AivyColors.Warning, Modifier.weight(1f))
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // 지난 세션 대비 비교 카드
         item {
-            Card(
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(16.dp)
+                color = AivyColors.Surface,
+                shape = RoundedCornerShape(AivyRadius.Xl),
+                shadowElevation = 1.dp,
             ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text("지난 세션 대비", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(12.dp))
+                Column(modifier = Modifier.padding(AivySpace.Card), verticalArrangement = Arrangement.spacedBy(AivySpace.Sm)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("지난 세션 대비", style = MaterialTheme.typography.titleMedium, color = AivyColors.Text1, modifier = Modifier.weight(1f))
+                        AivyStatusChip(compareStatus(viewModel.distance, lastSession), AivyColors.AccentLight, AivyColors.Accent)
+                    }
 
                     if (lastSession == null) {
-                        Text("지난 기록이 없습니다.", fontSize = 14.sp, color = Color.DarkGray)
+                        Text("비교할 지난 기록이 없습니다. 이번 기록이 다음 코칭 기준이 됩니다.", style = MaterialTheme.typography.bodyMedium, color = AivyColors.Text3)
                     } else {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            val distDiff = viewModel.distance - lastSession.distance
-                            val calDiff = viewModel.calculateCalories() - lastSession.calories
-
-                            DiffBadge("거리", String.format("%+.1fkm", distDiff), if(distDiff>=0) Color(0xFF4CAF50) else Color(0xFF1976D2))
-                            DiffBadge("칼로리", String.format("%+dkcal", calDiff), if(calDiff>=0) Color(0xFF4CAF50) else Color(0xFF1976D2))
+                        Row(horizontalArrangement = Arrangement.spacedBy(AivySpace.Sm), modifier = Modifier.fillMaxWidth()) {
+                            DiffBadge("거리", String.format(Locale.US, "%+.1fkm", viewModel.distance - lastSession.distance), if (viewModel.distance >= lastSession.distance) AivyColors.Positive else AivyColors.Accent, Modifier.weight(1f))
+                            DiffBadge("시간", formatSignedSeconds(viewModel.timeElapsed - lastSession.timeElapsed), if (viewModel.timeElapsed >= lastSession.timeElapsed) AivyColors.Positive else AivyColors.Accent, Modifier.weight(1f))
+                            DiffBadge("페이스", paceText, AivyColors.Primary, Modifier.weight(1f))
                         }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // km별 스플릿 타임 카드
         item {
-            Card(
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(16.dp)
+                color = AivyColors.Surface,
+                shape = RoundedCornerShape(AivyRadius.Xl),
+                shadowElevation = 1.dp,
             ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text("km별 스플릿", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(16.dp))
+                Column(modifier = Modifier.padding(AivySpace.Card)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("스플릿 분석", style = MaterialTheme.typography.titleMedium, color = AivyColors.Text1)
+                            Text("막대가 길수록 시간이 오래 걸린 구간입니다.", style = MaterialTheme.typography.bodySmall, color = AivyColors.Text4)
+                        }
+                        AivyStatusChip("${viewModel.kmSplits.size}개 구간", AivyColors.BackgroundAlt, AivyColors.Text3)
+                    }
+                    Spacer(modifier = Modifier.height(AivySpace.Md))
 
                     if (viewModel.kmSplits.isEmpty()) {
-                        Text("1km 미만의 기록입니다.", fontSize = 14.sp, color = Color.DarkGray)
+                        Text("1km 미만의 기록입니다.", style = MaterialTheme.typography.bodyMedium, color = AivyColors.Text3)
                     } else {
                         val maxTime = viewModel.kmSplits.maxOrNull() ?: 1L
                         viewModel.kmSplits.forEachIndexed { index, timeSec ->
@@ -859,9 +1081,20 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                             ) {
                                 Text("${index + 1}km", fontSize = 14.sp, modifier = Modifier.width(40.dp))
 
-                                Box(modifier = Modifier.weight(1f).height(16.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFFE3F2FD))) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(16.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(AivyColors.AccentLight),
+                                ) {
                                     val fraction = (timeSec.toFloat() / maxTime).coerceIn(0f, 1f)
-                                    Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(fraction).background(Color(0xFF64B5F6)))
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(fraction)
+                                            .background(if (timeSec == maxTime) AivyColors.Warning else AivyColors.Accent),
+                                    )
                                 }
 
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -873,28 +1106,26 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(32.dp))
         }
 
-        // 하단 이동 버튼
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AivySpace.Sm)) {
                 Button(
                     onClick = onGoHome,
                     modifier = Modifier.weight(1f).height(56.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF102841)),
-                    shape = RoundedCornerShape(12.dp)
-                ) { Text("홈으로", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+                    colors = ButtonDefaults.buttonColors(containerColor = AivyColors.Primary),
+                    shape = RoundedCornerShape(AivyRadius.Lg)
+                ) { Text("러닝 홈으로", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
-                // TODO: 공유기능 구현
                 OutlinedButton(
                     onClick = { /* 공유 기능 연동 가능 */ },
+                    enabled = false,
                     modifier = Modifier.weight(1f).height(56.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(AivyRadius.Lg)
                 ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.Black)
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("공유", fontSize = 16.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("공유 준비 중", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(modifier = Modifier.height(24.dp))
@@ -902,29 +1133,59 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
     }
 }
 
-// 통계 수치 표시용 공통 컴포넌트
 @Composable
-fun SummaryItem(label: String, value: String, unit: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = label, fontSize = 12.sp, color = Color.Gray)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(text = value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Black)
-        if (unit.isNotEmpty()) {
-            Text(text = unit, fontSize = 12.sp, color = Color.Gray)
+fun SummaryMetricCard(label: String, value: String, unit: String, accent: Color, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.height(118.dp),
+        color = AivyColors.Surface,
+        shape = RoundedCornerShape(AivyRadius.Lg),
+        shadowElevation = 1.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(AivySpace.Md),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(label, style = MaterialTheme.typography.bodySmall, color = AivyColors.Text4, maxLines = 1)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(value, style = MaterialTheme.typography.titleLarge, color = accent, maxLines = 1)
+                if (unit.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(unit, style = MaterialTheme.typography.bodySmall, color = AivyColors.Text4)
+                }
+            }
         }
     }
 }
 
-// 이전 세션 기록과 증감 수치 표시용 뱃지 컴포넌트
 @Composable
-fun DiffBadge(label: String, diffStr: String, diffColor: Color) {
+fun DiffBadge(label: String, diffStr: String, diffColor: Color, modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier.background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp)).padding(horizontal = 24.dp, vertical = 12.dp),
+        modifier = modifier
+            .background(AivyColors.BackgroundAlt, RoundedCornerShape(AivyRadius.Md))
+            .padding(horizontal = AivySpace.Sm, vertical = AivySpace.Sm),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(text = label, fontSize = 12.sp, color = Color.Gray)
-        Text(text = diffStr, fontSize = 16.sp, color = diffColor, fontWeight = FontWeight.Bold)
+        Text(text = label, style = MaterialTheme.typography.bodySmall, color = AivyColors.Text4)
+        Text(text = diffStr, style = MaterialTheme.typography.bodyMedium, color = diffColor, fontWeight = FontWeight.Bold, maxLines = 1)
     }
+}
+
+private fun completionHeadline(distance: Double, seconds: Long): String {
+    if (distance <= 0.0 || seconds <= 0L) return "첫 기준 기록이 저장되었습니다."
+    return "${String.format(Locale.US, "%.1f", distance)}km를 완료했습니다. 다음 러닝은 같은 리듬으로 시작하세요."
+}
+
+private fun compareStatus(distance: Double, lastSession: WorkoutRecordEntity?): String {
+    if (lastSession == null) return "기준 생성"
+    return if (distance >= lastSession.distance) "거리 증가" else "회복 러닝"
+}
+
+private fun formatSignedSeconds(seconds: Long): String {
+    val sign = if (seconds >= 0) "+" else "-"
+    val absSeconds = kotlin.math.abs(seconds)
+    val minutes = absSeconds / 60
+    val rest = absSeconds % 60
+    return "$sign${minutes}:${rest.toString().padStart(2, '0')}"
 }
 
 // 초 단위를 시:분:초 포맷으로 변환하는 함수
