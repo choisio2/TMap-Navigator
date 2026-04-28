@@ -293,6 +293,7 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var currentAzimuth = 0f
     private var lastMarkerAzimuth = 0f
     private var currentLocation: TMapPoint? = null
+    private var tMapViewInstance: TMapView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -306,7 +307,9 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         myLocationBaseBitmap = getBitmapFromVectorDrawable(R.drawable.ic_my_location_dot)
 
         val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-            if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] != true) {
+            if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+                tMapViewInstance?.let { fetchCurrentLocation(it) }
+            } else {
                 Toast.makeText(this, "위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
                 finish()
             }
@@ -325,6 +328,7 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             val tMapView = remember {
                 TMapView(this@RunningActivity).apply {
+                    tMapViewInstance = this
                     setSKTMapApiKey(BuildConfig.TMAP_APP_KEY)
                     zoomLevel = 17
                     setOnApiKeyListener(object : TMapView.OnApiKeyListenerCallback {
@@ -462,7 +466,7 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 }
 
 // ==========================================
-// Compose UI 영역
+// Compose UI
 // ==========================================
 
 @Composable
