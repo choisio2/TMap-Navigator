@@ -13,6 +13,7 @@ import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
 
 interface TMapApiService {
+
     // POI(장소) 통합 검색
     @GET("tmap/pois?version=1")
     suspend fun searchPOI(
@@ -20,7 +21,8 @@ interface TMapApiService {
         @Query("searchKeyword") keyword: String,
         @Query("resCoordType") resCoordType: String = "WGS84GEO",
         @Query("reqCoordType") reqCoordType: String = "WGS84GEO",
-        @Query("count") count: Int = 10 // 10개만 가져오기
+        @Query("count") count: Int = 10,
+        @Query("reqCategories") categories: String? = null // 카테고리 필터
     ): Response<TMapPoiResponse>
 
     @FormUrlEncoded

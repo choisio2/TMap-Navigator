@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-feature android:name="android.hardware.camera.any" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -24,16 +27,15 @@
             android:name=".RunningActivity"
             android:exported="false" />
         <activity
+            android:name=".RunningReadyActivity"
+            android:exported="false"
+            android:launchMode="singleTask" />
+        <activity
             android:name=".TmapsActivity"
-            android:exported="true" />
-
+            android:exported="false" />
         <meta-data
             android:name="com.naver.maps.map.NCP_KEY_ID"
             android:value="s23srtgglv" />
-
-        <activity
-            android:name=".NaverMapsActivity"
-            android:exported="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -44,6 +46,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".RunningService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 
 </manifest>

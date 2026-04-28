@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
+    id("com.google.devtools.ksp")
 }
 
 val localProperties = Properties().apply {
@@ -24,10 +25,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        //manifestPlaceholders["naverClientId"] = localProperties.getProperty("NAVER_CLIENT_ID", "")
         buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\"")
         buildConfigField("String", "TMAP_APP_KEY", "\"${localProperties.getProperty("TMAP_APP_KEY", "")}\"")
-        buildConfigField("String", "OPENAI_API_KEY", "\"${localProperties.getProperty("OPENAI_API_KEY", "")}\"")
     }
 
     buildFeatures {
@@ -70,12 +69,8 @@ dependencies {
 
     // -----------------------------
 
-    // TMap SDK (JAR from libs/)
+    // TMap SDK
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
-
-    // Naver Maps SDK
-    implementation("com.naver.maps:map-sdk:3.23.2")
-
     // Google Play Services - 위치 서비스
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
@@ -122,4 +117,13 @@ dependencies {
 
     // Gemini AI Android SDK (Google 공식 SDK)
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+
+    // room DB
+    val room_version = "2.6.1"
+    implementation("androidx.room:room-runtime:$room_version")
+    implementation("androidx.room:room-ktx:$room_version")
+    ksp("androidx.room:room-compiler:$room_version")
+
+    implementation("androidx.compose.material:material-icons-extended")
+
 }

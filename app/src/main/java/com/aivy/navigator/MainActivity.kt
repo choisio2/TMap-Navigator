@@ -29,10 +29,10 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
 
-        // 카메라 테스트로 이동
+        // 러닝 대시보드 화면으로 이동
         val bbtnRunning= findViewById<Button>(R.id.btnRunning)
         bbtnRunning.setOnClickListener {
-            val intent = Intent(this, RunningActivity::class.java)
+            val intent = Intent(this, RunningReadyActivity::class.java)
             startActivity(intent)
         }
 

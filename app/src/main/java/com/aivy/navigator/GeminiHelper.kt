@@ -11,7 +11,6 @@ object GeminiHelper {
         apiKey = BuildConfig.GEMINI_API_KEY
     )
 
-    // 파라미터에 azimuth(방위각) 추가
     suspend fun analyzeImage(bitmap: Bitmap, step: RouteStep, azimuth: Float): String? {
         val directionText = when (step.turnType) {
             12 -> "왼쪽으로 회전"
@@ -22,15 +21,15 @@ object GeminiHelper {
         }
 
         val promptText = """
-            보행자 음성 내비게이션 안내 멘트를 생성하세요.
             [상황]
             - 이 사진은 보행자의 전방 시점입니다.
             - 현재 사용자의 몸이 향한 방향: ${azimuth}도 (0:북, 90:동, 180:남, 270:서)
             - 다음 동작: ${directionText}
-            [규칙]
-            - 사진에 보이는 간판, 상점명, 건물 특징을 반드시 활용할 것
-            - 한국어 1문장, 25자 이내, "~하세요" 체로 끝낼 것
-            - 사진 특징 파악 불가 시 오직 "0"만 출력할 것.
+            
+            [엄격한 출력 규칙]
+            1. 사진에 보이는 간판, 상점명, 건물 특징을 활용하여 "~하세요"로 끝나는 딱 1문장만 출력하세요.
+            2. 인사말, 부연 설명, 마크다운(**), 따옴표(" ")는 절대 포함하지 마세요.
+            3. 사진 특징 파악 불가 시 오직 숫자 "0"만 출력하세요.
         """.trimIndent()
 
         val inputContent = content {
@@ -44,27 +43,24 @@ object GeminiHelper {
         } catch (e: Exception) { null }
     }
 
-    // 파라미터에 azimuth(방위각) 추가
     suspend fun enhanceNavigationText(originalInstruction: String, landmarks: String, azimuth: Float): String {
         val promptText = """
-            내비게이션 안내 AI입니다. TMap의 기본 안내와 주변 랜드마크 정보를 바탕으로 자연스러운 안내 멘트를 만드세요.
-
             [입력 데이터]
             - 원래 안내: $originalInstruction
             - 주변 랜드마크: $landmarks
             - 현재 사용자 방향: ${azimuth}도
 
-            [규칙]
-            - 랜드마크 중 눈에 띄는 1~2개 선택하여 1문장으로 생성
-            - "~하세요" 체로 끝낼 것
-            - 랜드마크 정보 부족 시 원래 안내를 다듬어 출력
+            [엄격한 출력 규칙]
+            1. 랜드마크 중 눈에 띄는 1~2개를 선택하여 "~하세요"로 끝나는 딱 1문장만 출력하세요.
+            2. 인사말("네, AI입니다" 등), 부연 설명, 마크다운(**), 따옴표(" "), 줄바꿈은 절대 포함하지 마세요.
+            3. 오직 사용자에게 들려줄 최종 음성 멘트 텍스트 1줄만 출력해야 합니다.
         """.trimIndent()
 
         return try {
             val response = generativeModel.generateContent(promptText)
-            response.text?.trim() ?: "$originalInstruction"
+            response.text?.trim() ?: originalInstruction
         } catch (e: Exception) {
-            "$originalInstruction"
+            originalInstruction
         }
     }
 }
