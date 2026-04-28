@@ -2,7 +2,9 @@ package com.aivy.navigator
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Matrix
@@ -15,25 +17,37 @@ import android.location.Location
 import android.os.Bundle
 import android.os.Looper
 import android.speech.tts.TextToSpeech
+import android.util.Xml
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.location.*
@@ -42,32 +56,80 @@ import com.skt.Tmap.TMapPoint
 import com.skt.Tmap.TMapPolyLine
 import com.skt.Tmap.TMapView
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import org.xmlpull.v1.XmlPullParser
 import java.util.*
 import kotlin.math.abs
-import android.util.Xml
-import org.xmlpull.v1.XmlPullParser
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.List
+import kotlin.math.roundToInt
 
-// 러닝 상태를 정의하는 Enum
-enum class RunState { INIT, COUNTDOWN, RUNNING, PAUSED, STOPPED }
+// Database Imports
+import com.aivy.navigator.data.database.AppDatabase
+import com.aivy.navigator.data.database.SavedCourseEntity
+import com.aivy.navigator.data.database.WorkoutRecordEntity
 
-// ViewModel (데이터 및 상태 관리)
-class RunningViewModel : ViewModel() {
+// ==========================================
+// 기본 데이터 모델
+// ==========================================
+
+data class CourseInfo(val resId: Int, val name: String)
+
+// 앱 내 정적 코스 리스트
+val ALL_AVAILABLE_COURSES = listOf(
+    CourseInfo(R.raw.dangdang_run, "🐕 광화문 댕댕이런"),
+    CourseInfo(R.raw.dolphin_run, "🐬 광교 돌고래런"),
+    CourseInfo(R.raw.seoul_half_marathon, "🏃 서울 하프 마라톤"),
+    CourseInfo(R.raw.rudolph_run, "🦌 루돌프런"),
+    CourseInfo(R.raw.seoul_half_marathon, "🏃 MBN 서울 마라톤")
+)
+
+// ==========================================
+// ViewModel 및 상태 관리 클래스
+// ==========================================
+
+enum class RunState { INIT, COUNTDOWN, RUNNING, PAUSED, STOPPED, FINISHED }
+
+class RunningViewModel(application: Application) : AndroidViewModel(application) {
     var runState by mutableStateOf(RunState.INIT)
     var countdown by mutableStateOf(3)
     var timeElapsed by mutableStateOf(0L)
-    var distance by mutableStateOf(0.0) // km
+    var distance by mutableStateOf(0.0)
 
     val pathPoints = mutableStateListOf<TMapPoint>()
+    val importedRoute = mutableStateListOf<TMapPoint>()
+
+    // 구간별 스플릿 타임 계산용 변수
+    val kmSplits = mutableStateListOf<Long>()
+    private var lastSplitTime = 0L
+    private var currentKmTarget = 1
+    var lastWorkoutRecord by mutableStateOf<WorkoutRecordEntity?>(null)
 
     private var timerJob: Job? = null
     private var lastLocation: Location? = null
 
-    // gpx 파일 넣기
-    val importedRoute = mutableStateListOf<TMapPoint>()
+    // Room DB 및 DAO 초기화
+    private val db = AppDatabase.getDatabase(application)
+    private val runningDao = db.runningDao()
 
+    val savedCoursesFlow = runningDao.getAllSavedCourses()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    var showAllCoursesDialog by mutableStateOf(false)
+    var showSavedCoursesDialog by mutableStateOf(false)
+
+    // 북마크 상태 변경
+    fun toggleBookmark(course: CourseInfo, isSaved: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val entity = SavedCourseEntity(course.resId, course.name)
+            if (isSaved) {
+                runningDao.deleteCourse(entity)
+            } else {
+                runningDao.insertCourse(entity)
+            }
+        }
+    }
+
+    // gpx 경로 데이터 파싱 및 로드
     fun loadGpxRoute(context: Context, resId: Int, tMapView: TMapView) {
         viewModelScope.launch(Dispatchers.IO) {
             val points = mutableListOf<TMapPoint>()
@@ -91,7 +153,6 @@ class RunningViewModel : ViewModel() {
                     importedRoute.clear()
                     importedRoute.addAll(points)
 
-                    // 루트를 불러오면 시작점으로 시점 자동 이동
                     if (points.isNotEmpty()) {
                         tMapView.setCenterPoint(points[0].longitude, points[0].latitude)
                         Toast.makeText(context, "루트를 성공적으로 불러왔습니다", Toast.LENGTH_SHORT).show()
@@ -105,6 +166,7 @@ class RunningViewModel : ViewModel() {
         }
     }
 
+    // 러닝 카운트다운하고 시작
     fun startCountdown(onCountdownFinish: () -> Unit) {
         runState = RunState.COUNTDOWN
         viewModelScope.launch {
@@ -116,6 +178,10 @@ class RunningViewModel : ViewModel() {
             runState = RunState.RUNNING
             onCountdownFinish()
             startTimer()
+
+            val context = getApplication<Application>()
+            val serviceIntent = Intent(context, RunningService::class.java)
+            ContextCompat.startForegroundService(context, serviceIntent)
         }
     }
 
@@ -129,9 +195,33 @@ class RunningViewModel : ViewModel() {
         startTimer()
     }
 
+    // 러닝 종료 및 기록 저장
     fun stopRunning() {
-        runState = RunState.STOPPED
         timerJob?.cancel()
+
+        val context = getApplication<Application>()
+        val serviceIntent = Intent(context, RunningService::class.java)
+        context.stopService(serviceIntent)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            // 이전 세션 기록 조회
+            lastWorkoutRecord = runningDao.getLastWorkout()
+
+            // 신규 기록 저장
+            val calories = calculateCalories()
+            val newRecord = WorkoutRecordEntity(
+                distance = distance,
+                timeElapsed = timeElapsed,
+                calories = calories,
+                paceStr = calculatePace(),
+                splitsCsv = kmSplits.joinToString(",")
+            )
+            runningDao.insertWorkout(newRecord)
+
+            withContext(Dispatchers.Main) {
+                runState = RunState.FINISHED
+            }
+        }
     }
 
     private fun startTimer() {
@@ -144,6 +234,7 @@ class RunningViewModel : ViewModel() {
         }
     }
 
+    // 위치 업데이트 및 거리 계산
     fun updateLocation(newLoc: Location) {
         if (runState != RunState.RUNNING) return
         val newPoint = TMapPoint(newLoc.latitude, newLoc.longitude)
@@ -152,10 +243,19 @@ class RunningViewModel : ViewModel() {
         lastLocation?.let { last ->
             val distMeters = last.distanceTo(newLoc)
             distance += (distMeters / 1000.0)
+
+            // 지정된 km 구간 도달 시 스플릿 타임 기록
+            if (distance >= currentKmTarget) {
+                val splitDuration = timeElapsed - lastSplitTime
+                kmSplits.add(splitDuration)
+                lastSplitTime = timeElapsed
+                currentKmTarget++
+            }
         }
         lastLocation = newLoc
     }
 
+    // 현재 페이스 계산
     fun calculatePace(): String {
         if (distance == 0.0 || timeElapsed == 0L) return "0'00\""
         val totalMinutes = (timeElapsed / 60.0) / distance
@@ -164,21 +264,26 @@ class RunningViewModel : ViewModel() {
         return String.format("%d'%02d\"", minutes, secs)
     }
 
+    // 성인 평균 체중(65kg) 기준 칼로리 소모량 계산
+    // TODO: 추후에 개인 정보 받아서 계산하는 로직으로 수정하기
+    fun calculateCalories(): Int {
+        return (65 * distance * 1.036).roundToInt()
+    }
+
     override fun onCleared() {
         timerJob?.cancel()
         super.onCleared()
     }
 }
 
-// 3. 메인 Activity
+
+
 class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
-
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
 
-    // 마커 및 센서 관련 변수
     private var myLocationBaseBitmap: Bitmap? = null
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
@@ -195,7 +300,6 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        // 센서 초기화 및 마커 이미지 캐싱
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
@@ -207,12 +311,18 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 finish()
             }
         }
-        requestPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+
+        requestPermissionLauncher.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+        )
 
         setContent {
             val viewModel: RunningViewModel = viewModel()
 
-            // TMap 뷰 초기화 -> 키 인증 성공 시 현재 위치 바로 찾기
             val tMapView = remember {
                 TMapView(this@RunningActivity).apply {
                     setSKTMapApiKey(BuildConfig.TMAP_APP_KEY)
@@ -226,19 +336,18 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            // 센서 및 GPS 콜백을 위한 Compose 생명주기 관리
+            // 센서 이벤트를 통한 디바이스 방향 측정
             DisposableEffect(Unit) {
-                // 센서 리스너 (방향 마커 회전용)
                 val sensorEventListener = object : SensorEventListener {
                     override fun onSensorChanged(event: SensorEvent) {
                         if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) gravity.indices.forEach { gravity[it] = event.values[it] }
                         if (event.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) geomagnetic.indices.forEach { geomagnetic[it] = event.values[it] }
 
-                        val R = FloatArray(9)
-                        val I = FloatArray(9)
-                        if (SensorManager.getRotationMatrix(R, I, gravity, geomagnetic)) {
+                        val rMatrix = FloatArray(9)
+                        val iMatrix = FloatArray(9)
+                        if (SensorManager.getRotationMatrix(rMatrix, iMatrix, gravity, geomagnetic)) {
                             val orientation = FloatArray(3)
-                            SensorManager.getOrientation(R, orientation)
+                            SensorManager.getOrientation(rMatrix, orientation)
                             currentAzimuth = (Math.toDegrees(orientation[0].toDouble()).toFloat() + 360) % 360
 
                             if (abs(currentAzimuth - lastMarkerAzimuth) > 5f) {
@@ -253,7 +362,6 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 accelerometer?.let { sensorManager.registerListener(sensorEventListener, it, SensorManager.SENSOR_DELAY_UI) }
                 magnetometer?.let { sensorManager.registerListener(sensorEventListener, it, SensorManager.SENSOR_DELAY_UI) }
 
-                // GPS 콜백 (위치 이동용)
                 locationCallback = object : LocationCallback() {
                     override fun onLocationResult(result: LocationResult) {
                         result.lastLocation?.let { loc ->
@@ -275,14 +383,24 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 viewModel = viewModel,
                 tMapView = tMapView,
                 onStartGps = { startLocationUpdates() },
-                onStopGps = { fusedLocationClient.removeLocationUpdates(locationCallback) }
+                onStopGps = { fusedLocationClient.removeLocationUpdates(locationCallback) },
+                onMyLocationClick = { fetchCurrentLocation(tMapView) }
             )
         }
     }
 
-    // 앱 켜자마자 내 위치 한 번 잡아주는 함수
     @SuppressLint("MissingPermission")
     private fun fetchCurrentLocation(tMapView: TMapView) {
+        // 캐시된 최근 위치를 우선적으로 적용하여 초기 지도 로딩 최적화
+        fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+            if (loc != null) {
+                currentLocation = TMapPoint(loc.latitude, loc.longitude)
+                tMapView.setCenterPoint(loc.longitude, loc.latitude)
+                updateMyLocationMarker(tMapView)
+            }
+        }
+
+        // 정확한 현재 위치를 백그라운드에서 재요청하여 위치 보정
         fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
             .addOnSuccessListener { loc ->
                 if (loc != null) {
@@ -293,7 +411,7 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
     }
 
-    // 내 위치 마커 그리기 & 회전 업데이트 함수
+    // 마커 아이콘 회전 및 UI 업데이트
     private fun updateMyLocationMarker(tMapView: TMapView) {
         val loc = currentLocation ?: return
         tMapView.removeMarkerItem("myLocation")
@@ -309,7 +427,7 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             setPosition(0.5f, 0.5f)
         }
         tMapView.addMarkerItem("myLocation", marker)
-        tMapView.postInvalidate()
+        tMapView.postInvalidate() // 지도 강제 갱신
     }
 
     private fun getBitmapFromVectorDrawable(drawableId: Int): Bitmap {
@@ -337,20 +455,40 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onDestroy() {
-        tts.stop(); tts.shutdown()
+        tts.stop()
+        tts.shutdown()
         super.onDestroy()
     }
 }
+
+// ==========================================
+// Compose UI 영역
+// ==========================================
 
 @Composable
 fun RunningScreen(
     viewModel: RunningViewModel,
     tMapView: TMapView,
     onStartGps: () -> Unit,
-    onStopGps: () -> Unit
+    onStopGps: () -> Unit,
+    onMyLocationClick: () -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var showRouteMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var showMainMenu by remember { mutableStateOf(false) }
+
+    // 운동 완료 -> 데이터 요약 화면으로 전환 -> 러닝홈으로
+    if (viewModel.runState == RunState.FINISHED) {
+        WorkoutSummaryScreen(
+            viewModel = viewModel,
+            onGoHome = {
+                val intent = Intent(context, RunningReadyActivity::class.java)
+                intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+                context.startActivity(intent)
+                (context as? ComponentActivity)?.finish()
+            }
+        )
+        return
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
 
@@ -361,6 +499,7 @@ fun RunningScreen(
             update = { view ->
                 view.removeAllTMapPolyLine()
 
+                // 가이드 경로 
                 if (viewModel.importedRoute.isNotEmpty()) {
                     val guideLine = TMapPolyLine().apply {
                         lineColor = AndroidColor.parseColor("#802196F3")
@@ -370,9 +509,10 @@ fun RunningScreen(
                     view.addTMapPolyLine("guide_route", guideLine)
                 }
 
+                // 사용자가 이동한 경로
                 if (viewModel.pathPoints.size >= 2) {
                     val myLine = TMapPolyLine().apply {
-                        lineColor = AndroidColor.parseColor("#DE6F3F")
+                        lineColor = AndroidColor.parseColor("#FF1976D2") // 초록색으로 변경
                         lineWidth = 15f
                     }
                     viewModel.pathPoints.forEach { myLine.addLinePoint(it) }
@@ -399,54 +539,60 @@ fun RunningScreen(
             }
         }
 
-        // 우측 루트 가져오기 버튼
+        // 우측 부가 기능 메뉴
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 210.dp, end = 16.dp),
             contentAlignment = Alignment.TopEnd
         ) {
-            // 버튼과 드롭다운을 하나의 Box로 묶기
             Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
                 Button(
-                    onClick = { showRouteMenu = true },
+                    onClick = { showMainMenu = true },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                     elevation = ButtonDefaults.elevatedButtonElevation(6.dp)
                 ) {
-                    Text("📍 루트 가져오기", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("➕ 더 많은 기능", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
 
                 DropdownMenu(
-                    expanded = showRouteMenu,
-                    onDismissRequest = { showRouteMenu = false },
+                    expanded = showMainMenu,
+                    onDismissRequest = { showMainMenu = false },
                     modifier = Modifier.background(Color.White)
                 ) {
                     DropdownMenuItem(
-                        text = { Text("🐕 광화문 댕댕이런", fontWeight = FontWeight.Bold) },
+                        text = { Text("🌍 새로운 코스 가져오기", fontWeight = FontWeight.Bold) },
                         onClick = {
-                            showRouteMenu = false
-                            viewModel.loadGpxRoute(context, R.raw.dangdang_run, tMapView)
+                            showMainMenu = false
+                            viewModel.showAllCoursesDialog = true
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("🐬 광교 돌고래런", fontWeight = FontWeight.Bold) },
+                        text = { Text("♥️ 저장한 코스 불러오기", fontWeight = FontWeight.Bold) },
                         onClick = {
-                            showRouteMenu = false
-                            viewModel.loadGpxRoute(context, R.raw.dolphin_run, tMapView)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("🏃 서울 하프 마라톤", fontWeight = FontWeight.Bold) },
-                        onClick = {
-                            showRouteMenu = false
-                            viewModel.loadGpxRoute(context, R.raw.seoul_half_marathon, tMapView)
+                            showMainMenu = false
+                            viewModel.showSavedCoursesDialog = true
                         }
                     )
                 }
             }
         }
 
-        // 하단 컨트롤 Box
+        // 내 위치 다시 잡기 플로팅 버튼
+        FloatingActionButton(
+            onClick = onMyLocationClick,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 40.dp),
+            containerColor = Color.White,
+            contentColor = Color(0xFF1976D2),
+            shape = CircleShape,
+            elevation = FloatingActionButtonDefaults.elevation(4.dp)
+        ) {
+            Icon(Icons.Default.LocationOn, contentDescription = "내 위치로 이동", modifier = Modifier.size(28.dp))
+        }
+
+        // 하단 컨트롤 박스
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -487,7 +633,7 @@ fun RunningScreen(
                 }
                 RunState.STOPPED -> {
                     Button(
-                        onClick = { /* 완료 처리 */ },
+                        onClick = { /* 추후 완료 후속 처리 구성 가능 */ },
                         modifier = Modifier.size(width = 200.dp, height = 60.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
                     ) { Text("러닝 완료", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
@@ -496,18 +642,114 @@ fun RunningScreen(
             }
         }
 
-        // 카운트다운 박스
+        // 카운트다운 영역
         if (viewModel.runState == RunState.COUNTDOWN) {
             Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.7f)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(text = viewModel.countdown.toString(), fontSize = 180.sp, color = Color.White, fontWeight = FontWeight.Black)
             }
         }
     }
+
+    // ==========================================
+    // 팝업 다이얼로그
+    // ==========================================
+    val savedCourses by viewModel.savedCoursesFlow.collectAsState()
+    val savedIds = savedCourses.map { it.resId }
+
+    // 새로운 코스 목록 가져오기 다이얼로그
+    if (viewModel.showAllCoursesDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.showAllCoursesDialog = false },
+            title = { Text("새로운 코스 가져오기", fontWeight = FontWeight.Bold) },
+            text = {
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(ALL_AVAILABLE_COURSES) { course ->
+                        val isSaved = savedIds.contains(course.resId)
+                        CourseListItem(
+                            courseName = course.name,
+                            isSaved = isSaved,
+                            onItemClick = {
+                                viewModel.loadGpxRoute(context, course.resId, tMapView)
+                                viewModel.showAllCoursesDialog = false
+                            },
+                            onBookmarkClick = { viewModel.toggleBookmark(course, isSaved) }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.showAllCoursesDialog = false }) {
+                    Text("닫기")
+                }
+            }
+        )
+    }
+
+    // 저장한 코스 불러오기 다이얼로그
+    if (viewModel.showSavedCoursesDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.showSavedCoursesDialog = false },
+            title = { Text("저장한 코스 불러오기", fontWeight = FontWeight.Bold) },
+            text = {
+                if (savedCourses.isEmpty()) {
+                    Text("저장된 코스가 없습니다.\n새로운 코스에서 하트 아이콘을 눌러주세요!", color = Color.Gray)
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                        items(savedCourses) { savedCourse ->
+                            val course = CourseInfo(savedCourse.resId, savedCourse.name)
+                            CourseListItem(
+                                courseName = course.name,
+                                isSaved = true,
+                                onItemClick = {
+                                    viewModel.loadGpxRoute(context, course.resId, tMapView)
+                                    viewModel.showSavedCoursesDialog = false
+                                },
+                                onBookmarkClick = { viewModel.toggleBookmark(course, true) }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.showSavedCoursesDialog = false }) {
+                    Text("닫기")
+                }
+            }
+        )
+    }
 }
 
+// 다이얼로그 내 개별 코스 항목 UI
+@Composable
+fun CourseListItem(courseName: String, isSaved: Boolean, onItemClick: () -> Unit, onBookmarkClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onItemClick() }
+            .padding(vertical = 12.dp, horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = courseName,
+            modifier = Modifier.weight(1f),
+            fontSize = 16.sp
+        )
+        IconButton(onClick = onBookmarkClick) {
+            Icon(
+                imageVector = Icons.Default.Favorite,
+                contentDescription = "Bookmark",
+                tint = if (isSaved) Color(0xFFE91E63) else Color.LightGray
+            )
+        }
+    }
+}
+
+// 상단 대시보드 데이터 아이템 컴포넌트
 @Composable
 fun RunningDataItem(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -516,6 +758,172 @@ fun RunningDataItem(label: String, value: String) {
     }
 }
 
+// ==========================================
+// 운동 결과 요약 화면
+// ==========================================
+@Composable
+fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
+    val lastSession = viewModel.lastWorkoutRecord
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().background(Color(0xFFF7F8FA)).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // 상단 타이틀 및 아이콘
+        item {
+            Spacer(modifier = Modifier.height(32.dp))
+            Box(
+                modifier = Modifier.size(70.dp).background(Color(0xFFE8F5E9), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(32.dp))
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("운동 완료!", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
+            Spacer(modifier = Modifier.height(30.dp))
+        }
+
+        // 통계 요약 카드
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(2.dp)
+            ) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                        SummaryItem("거리", String.format("%.2f", viewModel.distance), "km")
+                        SummaryItem("시간", formatSeconds(viewModel.timeElapsed), "")
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                        SummaryItem("평균", viewModel.calculatePace(), "")
+                        SummaryItem("칼로리", viewModel.calculateCalories().toString(), "kcal")
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // 지난 세션 대비 비교 카드
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("지난 세션 대비", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (lastSession == null) {
+                        Text("지난 기록이 없습니다.", fontSize = 14.sp, color = Color.DarkGray)
+                    } else {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            val distDiff = viewModel.distance - lastSession.distance
+                            val calDiff = viewModel.calculateCalories() - lastSession.calories
+
+                            DiffBadge("거리", String.format("%+.1fkm", distDiff), if(distDiff>=0) Color(0xFF4CAF50) else Color(0xFF1976D2))
+                            DiffBadge("칼로리", String.format("%+dkcal", calDiff), if(calDiff>=0) Color(0xFF4CAF50) else Color(0xFF1976D2))
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // km별 스플릿 타임 카드
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("km별 스플릿", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    if (viewModel.kmSplits.isEmpty()) {
+                        Text("1km 미만의 기록입니다.", fontSize = 14.sp, color = Color.DarkGray)
+                    } else {
+                        val maxTime = viewModel.kmSplits.maxOrNull() ?: 1L
+                        viewModel.kmSplits.forEachIndexed { index, timeSec ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("${index + 1}km", fontSize = 14.sp, modifier = Modifier.width(40.dp))
+
+                                Box(modifier = Modifier.weight(1f).height(16.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFFE3F2FD))) {
+                                    val fraction = (timeSec.toFloat() / maxTime).coerceIn(0f, 1f)
+                                    Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(fraction).background(Color(0xFF64B5F6)))
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+                                val mins = timeSec / 60
+                                val secs = timeSec % 60
+                                Text(String.format("%d'%02d\"", mins, secs), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+
+        // 하단 이동 버튼
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Button(
+                    onClick = onGoHome,
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF102841)),
+                    shape = RoundedCornerShape(12.dp)
+                ) { Text("홈으로", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+
+                // TODO: 공유기능 구현
+                OutlinedButton(
+                    onClick = { /* 공유 기능 연동 가능 */ },
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.Black)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("공유", fontSize = 16.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+// 통계 수치 표시용 공통 컴포넌트
+@Composable
+fun SummaryItem(label: String, value: String, unit: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = label, fontSize = 12.sp, color = Color.Gray)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(text = value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+        if (unit.isNotEmpty()) {
+            Text(text = unit, fontSize = 12.sp, color = Color.Gray)
+        }
+    }
+}
+
+// 이전 세션 기록과 증감 수치 표시용 뱃지 컴포넌트
+@Composable
+fun DiffBadge(label: String, diffStr: String, diffColor: Color) {
+    Column(
+        modifier = Modifier.background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp)).padding(horizontal = 24.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(text = label, fontSize = 12.sp, color = Color.Gray)
+        Text(text = diffStr, fontSize = 16.sp, color = diffColor, fontWeight = FontWeight.Bold)
+    }
+}
+
+// 초 단위를 시:분:초 포맷으로 변환하는 함수
 fun formatSeconds(seconds: Long): String {
     val h = seconds / 3600
     val m = (seconds % 3600) / 60
