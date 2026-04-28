@@ -4,9 +4,7 @@ import android.content.Context
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
-// ==========================================
-// 1. 데이터 모델 (Entities)
-// ==========================================
+// 데이터 모델 (Entities)
 
 @Entity(tableName = "saved_courses")
 data class SavedCourseEntity(
@@ -25,14 +23,12 @@ data class WorkoutRecordEntity(
     val splitsCsv: String
 )
 
-// ==========================================
-// 2. 데이터 접근 객체 (DAO)
-// ==========================================
+// 데이터 접근 객체 (DAO)
 
 @Dao
 interface RunningDao {
 
-    // --- 코스 관련 기능 ---
+    // 코스 관련
     @Query("SELECT * FROM saved_courses")
     fun getAllSavedCourses(): Flow<List<SavedCourseEntity>>
 
@@ -42,7 +38,7 @@ interface RunningDao {
     @Delete
     suspend fun deleteCourse(course: SavedCourseEntity)
 
-    // --- 운동 기록 관련 기능 ---
+    // 운동 기록 관련
     @Query("SELECT * FROM workout_records ORDER BY timestamp DESC")
     fun getAllWorkouts(): Flow<List<WorkoutRecordEntity>>
 
@@ -53,14 +49,12 @@ interface RunningDao {
     suspend fun getLastWorkout(): WorkoutRecordEntity?
 }
 
-// ==========================================
-// 3. 데이터베이스 본체 (Database)
-// ==========================================
+
+// 데이터베이스 본체
 
 @Database(entities = [SavedCourseEntity::class, WorkoutRecordEntity::class], version = 1, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
-    // 통합된 DAO를 반환합니다.
     abstract fun runningDao(): RunningDao
 
     companion object {
@@ -71,9 +65,9 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "aivy_running_db" // 새로운 이름으로 깨끗하게 시작!
+                    "aivy_running_db"
                 )
-                    .fallbackToDestructiveMigration() // 구조 변경 시 기존 데이터 초기화 (개발 중 에러 방지)
+                    .fallbackToDestructiveMigration()
                     .build()
 
                 INSTANCE = instance
