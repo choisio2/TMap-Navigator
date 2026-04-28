@@ -90,7 +90,6 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         private const val ANNOUNCE_DIST_NEAR = 10f
         private const val STRAIGHT_FEEDBACK_MS = 30_000L
         private const val POI_RADIUS_M = 100f
-        private const val POI_FRONT_ANGLE = 90f
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -225,7 +224,7 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    // 현재 위치 조회 (캐시 및 실시간 업데이트)
+    // 현재 위치 조회
     @SuppressLint("MissingPermission")
     private fun fetchCurrentLocation() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
@@ -575,7 +574,7 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         cancelRoutePreview()
     }
 
-    // 모의 주행 로직 (디버깅용)
+    // 가상 주행
     private fun startMockNavigation() {
         mockNavJob?.cancel()
         mockNavJob = lifecycleScope.launch(Dispatchers.Main) {
@@ -591,7 +590,7 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    // 실시간 위치 추적 (실제 주행)
+    // 실제 주행 - 실시간 위치 추적
     @SuppressLint("MissingPermission")
     private fun startRealNavigation() {
         val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 3000)
@@ -616,7 +615,8 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    // 진행률 파악 및 분기점별 안내(TTS) 로직 수행
+    // 내비게이션 함수
+    // 진행률 파악 및 분기점별 TTS 안내 로직
     private fun checkNavigationProgress(currentLoc: TMapPoint) {
         if (isRerouting || allRoutePoints.isEmpty()) return
 
@@ -667,7 +667,7 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 12 -> "왼쪽으로 회전"
                 13 -> "오른쪽으로 회전"
                 14 -> "유턴"
-                211, 212, 213, 214, 215, 216, 217 -> "횡단보도 건너기"
+                211, 212, 213, 214, 215, 216, 217 -> "횡단보도 건너기를"
                 else -> next.description
             }
 
@@ -688,25 +688,23 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 lastStraightFeedbackTime = System.currentTimeMillis()
 
                 lifecycleScope.launch {
-                    Log.d(TAG, "=========================================")
-                    Log.d(TAG, "[Gemini-Text] 랜드마크 안내 텍스트 생성 요청 시작")
                     val startTime = System.currentTimeMillis()
 
                     val landmark = getLandmarkForTurn(next.coordinate)
-                    Log.d(TAG, "[Gemini-Text] 검색된 랜드마크: $landmark")
+                    Log.d(TAG, "[Gemini] 검색된 랜드마크: $landmark")
 
                     if (!landmark.isNullOrEmpty()) {
-                        // 10초 타임아웃 추가
+                        // 10초 타임아웃
                         val rawInstruction = withTimeoutOrNull(10000L) {
                             GeminiHelper.enhanceNavigationText(next.description, landmark, currentAzimuth)
                         }
 
                         val endTime = System.currentTimeMillis()
-                        Log.d(TAG, "[Gemini-Text] 요청 소요 시간: ${endTime - startTime}ms")
-                        Log.d(TAG, "[Gemini-Text] 원본 응답: \n$rawInstruction")
+                        Log.d(TAG, "[Gemini] 요청 소요 시간: ${endTime - startTime}ms")
+                        Log.d(TAG, "[Gemini] 원본 응답: \n$rawInstruction")
 
                         if (rawInstruction == null) {
-                            Log.w(TAG, "[Gemini-Text] 경고: rawInstruction이 null입니다. (타임아웃 또는 네트워크 오류)")
+                            Log.w(TAG, "[Gemini] 경고: rawInstruction이 null")
                         }
 
                         val cleanInstruction = rawInstruction
@@ -716,14 +714,13 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             ?.firstOrNull { it.isNotBlank() && !it.contains("AI") }
                             ?: rawInstruction?.replace("\n", " ") ?: next.description
 
-                        Log.d(TAG, "[Gemini-Text] 파싱된 최종 텍스트: $cleanInstruction")
+                        Log.d(TAG, "[Gemini] 파싱된 최종 텍스트: $cleanInstruction")
                         Log.d(TAG, "=========================================")
 
                         uiStateNavInstruction = cleanInstruction
                         speakTTSWithCooldown(cleanInstruction)
                     } else {
-                        Log.d(TAG, "[Gemini-Text] 랜드마크가 없어 기본 안내 대기 (10m 직전 안내 수행 예정)")
-                        Log.d(TAG, "=========================================")
+                        Log.d(TAG, "[Gemini] 랜드마크가 없어 기본 안내 대기")
                     }
                 }
             }
@@ -792,13 +789,13 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     // AI 카메라 촬영 후 Gemini에 분석 요청
     private fun takePhotoAndSendToGemini() {
-        // UI 버튼 노출 시 currentStepForAI가 이미 할당된 상태여야 함
         val step = currentStepForAI ?: upcomingSteps.firstOrNull() ?: return
         val capture = imageCapture ?: return
 
         uiStateAiStatusMessage = "사진 촬영 완료! AI가 분석 중입니다..."
         uiStateShowAiLoading = true
 
+        Log.d(TAG, "[Camera] 사진 촬영 시작...")
         capture.takePicture(
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageCapturedCallback() {
@@ -806,14 +803,17 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     val bitmap = imageProxyToBitmap(image)
                     image.close()
                     if (bitmap != null) {
+                        Log.d(TAG, "[Camera] 비트맵 변환 성공! 리사이징 크기: ${bitmap.width}x${bitmap.height}")
                         processGeminiAnalysis(bitmap, step)
                     } else {
+                        Log.e(TAG, "[Camera] 🚨 비트맵 변환 실패 (null 반환)")
                         uiStateShowAiCamera = false
                         uiStateShowAiLoading = false
                         Toast.makeText(this@TmapsActivity, "이미지 변환에 실패했습니다.", Toast.LENGTH_SHORT).show()
                     }
                 }
                 override fun onError(exc: ImageCaptureException) {
+                    Log.e(TAG, "[Camera] 🚨 사진 촬영 실패", exc)
                     uiStateShowAiCamera = false
                     uiStateShowAiLoading = false
                     Toast.makeText(this@TmapsActivity, "촬영에 실패했습니다.", Toast.LENGTH_SHORT).show()
@@ -821,25 +821,25 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
         )
     }
-    // Gemini 응답 기반 안내 파싱 처리 (디버깅 로그 추가)
+    // Gemini 응답 기반 안내 파싱 처리
     private fun processGeminiAnalysis(bitmap: Bitmap, step: RouteStep) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                Log.d(TAG, "[Gemini] 이미지 분석 요청 시작 (방위각: $currentAzimuth)")
+                Log.d(TAG, "[GeminiImage] 이미지 분석 요청 시작 (방위각: $currentAzimuth)")
                 val startTime = System.currentTimeMillis()
 
                 // 10초 타임아웃 제한
                 val rawResponse = withTimeoutOrNull(10000L) {
-                    val result = GeminiHelper.analyzeImage(bitmap, step, currentAzimuth)
-                    Log.d(TAG, "[Gemini] 원본 응답 도착: \n$result") // 가장 중요한 원본 텍스트 확인!
+                    val result = GeminiHelper.analyzeImage(bitmap, step, currentAzimuth) // 이미지를 gemini한테 보내기
+                    Log.d(TAG, "[GeminiImage] 원본 응답 도착: \n$result") 
                     result?.trim()
                 }
 
                 val endTime = System.currentTimeMillis()
-                Log.d(TAG, "[Gemini] 요청 소요 시간: ${endTime - startTime}ms")
+                Log.d(TAG, "[GeminiImage] 요청 소요 시간: ${endTime - startTime}ms")
 
                 if (rawResponse == null) {
-                    Log.w(TAG, "[Gemini] ⚠️ rawResponse가 null입니다. (10초 타임아웃 발생 또는 API 내부 오류)")
+                    Log.w(TAG, "[GeminiImage] ⚠️ rawResponse가 null입니다. (10초 타임아웃 발생 또는 API 내부 오류)")
                 }
 
                 // 파싱 로직 수행
@@ -850,7 +850,7 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     ?.firstOrNull { it.isNotBlank() && !it.contains("AI") }
                     ?.trim()
 
-                Log.d(TAG, "[Gemini] 파싱된 최종 텍스트: $responseText")
+                Log.d(TAG, "[GeminiImage] 파싱된 최종 텍스트: $responseText")
                 Log.d(TAG, "=========================================")
 
                 withContext(Dispatchers.Main) {
@@ -869,7 +869,7 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             } catch (e: Exception) {
                 // 앱이 터지지 않게 막아주지만, 무슨 에러인지 로그로 확인
-                Log.e(TAG, "[Gemini] 🚨 예외 발생 (Exception): ${e.message}", e)
+                Log.e(TAG, "[Gemini] Exception: ${e.message}", e)
 
                 withContext(Dispatchers.Main) {
                     uiStateShowAiLoading = false
@@ -882,18 +882,32 @@ class TmapsActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    // ImageProxy를 Bitmap으로 변환 처리 (회전 대응)
+    // ImageProxy를 Bitmap으로 변환 처리
     private fun imageProxyToBitmap(image: ImageProxy): Bitmap? {
-        val buffer = image.planes[0].buffer
-        val bytes = ByteArray(buffer.remaining())
-        buffer.get(bytes)
-        val original = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-        val matrix = Matrix().apply {
-            postRotate(image.imageInfo.rotationDegrees.toFloat())
-            postScale(640f / original.width, 480f / original.height)
+        return try {
+            val buffer = image.planes[0].buffer
+            val bytes = ByteArray(buffer.remaining())
+            buffer.get(bytes)
+            val original = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+
+            val matrix = Matrix().apply {
+                postRotate(image.imageInfo.rotationDegrees.toFloat())
+            }
+
+            val rotatedBitmap = Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
+
+            // 제미나이 API 전송에 최적화된 크기(너비 800px 기준)로 원본 비율을 유지하며 축소
+            val targetWidth = 800
+            val aspectRatio = rotatedBitmap.height.toFloat() / rotatedBitmap.width.toFloat()
+            val targetHeight = (targetWidth * aspectRatio).toInt()
+
+            Bitmap.createScaledBitmap(rotatedBitmap, targetWidth, targetHeight, true)
+        } catch (e: Exception) {
+            Log.e(TAG, "[Camera] 비트맵 변환 중 예외 발생", e)
+            null
         }
-        return Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
     }
+
 
     // ============================================================
     // Compose 화면 UI 레이아웃
