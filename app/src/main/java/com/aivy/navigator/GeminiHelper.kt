@@ -20,6 +20,7 @@ object GeminiHelper {
             else -> step.description
         }
 
+        // 프롬프트 강화: 랜드마크 강제 포함 지시
         val promptText = """
             [상황]
             - 이 사진은 보행자의 전방 시점입니다.
@@ -27,9 +28,9 @@ object GeminiHelper {
             - 다음 동작: ${directionText}
             
             [엄격한 출력 규칙]
-            1. 사진에 보이는 간판, 상점명, 건물 특징을 활용하여 "~하세요"로 끝나는 딱 1문장만 출력하세요.
-            2. 인사말, 부연 설명, 마크다운(**), 따옴표(" ")는 절대 포함하지 마세요.
-            3. 사진 특징 파악 불가 시 오직 숫자 "0"만 출력하세요.
+            1. 사진에 보이는 간판, 상점명, 건물 특징을 반드시 포함해서 "~하세요"로 끝나는 딱 1문장의 길 안내를 출력하세요.
+            2. 인사말, 부연 설명, 마크다운(**), 따옴표(" ")는 절대 쓰지 마세요.
+            3. 사진에서 특징을 찾을 수 없다면 오직 숫자 "0"만 출력하세요.
         """.trimIndent()
 
         val inputContent = content {
@@ -46,19 +47,23 @@ object GeminiHelper {
     suspend fun enhanceNavigationText(originalInstruction: String, landmarks: String, azimuth: Float): String {
         val promptText = """
             [입력 데이터]
-            - 원래 안내: $originalInstruction
-            - 주변 랜드마크: $landmarks
-            - 현재 사용자 방향: ${azimuth}도
+            - 원본 TMap 안내: $originalInstruction
+            - 활용해야 할 랜드마크: $landmarks
 
             [엄격한 출력 규칙]
-            1. 랜드마크 중 눈에 띄는 1~2개를 선택하여 "~하세요"로 끝나는 딱 1문장만 출력하세요.
-            2. 인사말("네, AI입니다" 등), 부연 설명, 마크다운(**), 따옴표(" "), 줄바꿈은 절대 포함하지 마세요.
-            3. 오직 사용자에게 들려줄 최종 음성 멘트 텍스트 1줄만 출력해야 합니다.
+            1. 제공된 활용해야 할 랜드마크를 반드시 문장 안에 포함해서 길 안내를 만드세요.
+            2. 원본 안내에 적힌 정확한 거리(m) 수치는 무시하고 과감히 빼세요. 대신 방향(좌/우/직진/건너기 등) 위주로 자연스럽게 문장을 만드세요. 
+               (예시: "GS25 부근에서 우측 횡단보도를 건너세요.")
+            3. "~하세요"로 끝나는 딱 1문장만 출력하세요.
+            4. 인사말, 부연 설명, 마크다운(**), 따옴표(" "), 줄바꿈은 절대 포함하지 마세요. 오직 안내 멘트만 출력하세요.
         """.trimIndent()
 
         return try {
             val response = generativeModel.generateContent(promptText)
-            response.text?.trim() ?: originalInstruction
+            val result = response.text?.trim()
+
+            // 제미나이가 빈 칸을 반환하면 안전하게 원본 리턴
+            if (result.isNullOrBlank()) originalInstruction else result
         } catch (e: Exception) {
             originalInstruction
         }

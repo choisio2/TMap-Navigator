@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,24 +15,27 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import java.text.SimpleDateFormat
 import java.util.*
 
-// 데이터베이스 관련 패키지 임포트
 import com.aivy.navigator.data.database.AppDatabase
 import com.aivy.navigator.data.database.WorkoutRecordEntity
 
@@ -43,6 +47,12 @@ class RunningReadyViewModel(application: Application) : AndroidViewModel(applica
     // DB에서 모든 러닝 기록을 최신순으로 가져오는 플로우
     val allWorkouts = runningDao.getAllWorkouts()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    fun deleteWorkout(record: WorkoutRecordEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runningDao.deleteWorkout(record)
+        }
+    }
 }
 
 // 메인 액티비티
@@ -51,7 +61,23 @@ class RunningReadyActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             val viewModel: RunningReadyViewModel = viewModel()
-            RunningReadyScreen(viewModel = viewModel, onBackClick = { finish() })
+            // 상세 화면으로 이동하기 위한 상태 변수
+            var selectedRecord by remember { mutableStateOf<WorkoutRecordEntity?>(null) }
+
+            if (selectedRecord != null) {
+                // 뒤로가기 버튼
+                BackHandler { selectedRecord = null }
+                WorkoutDetailScreen(
+                    record = selectedRecord!!,
+                    onBackClick = { selectedRecord = null }
+                )
+            } else {
+                RunningReadyScreen(
+                    viewModel = viewModel,
+                    onBackClick = { finish() },
+                    onRecordClick = { record -> selectedRecord = record }
+                )
+            }
         }
     }
 }
@@ -59,11 +85,14 @@ class RunningReadyActivity : ComponentActivity() {
 // 메인 화면 UI 구성 컴포넌트
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RunningReadyScreen(viewModel: RunningReadyViewModel, onBackClick: () -> Unit) {
+fun RunningReadyScreen(
+    viewModel: RunningReadyViewModel,
+    onBackClick: () -> Unit,
+    onRecordClick: (WorkoutRecordEntity) -> Unit
+) {
     val context = LocalContext.current
     val workouts by viewModel.allWorkouts.collectAsState()
 
-    // 전체 누적 기록 및 통계 데이터 산출 (추후 월별 데이터 필터링 로직 추가 필요)
     val totalDistance = workouts.sumOf { it.distance }
     val workoutCount = workouts.size
     val totalTimeSeconds = workouts.sumOf { it.timeElapsed }
@@ -73,7 +102,6 @@ fun RunningReadyScreen(viewModel: RunningReadyViewModel, onBackClick: () -> Unit
             .fillMaxSize()
             .background(Color(0xFFF7F8FA))
     ) {
-        // 상단 네비게이션 앱바
         TopAppBar(
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -98,7 +126,6 @@ fun RunningReadyScreen(viewModel: RunningReadyViewModel, onBackClick: () -> Unit
             navigationIcon = {}
         )
 
-        // 메인 콘텐츠 스크롤 영역
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -117,15 +144,14 @@ fun RunningReadyScreen(viewModel: RunningReadyViewModel, onBackClick: () -> Unit
 
             EnvironmentCard()
 
-            WorkoutHistorySection(workouts)
+            WorkoutHistorySection(workouts, viewModel, onRecordClick)
 
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
 
-// 하위 UI 컴포넌트
-// 오늘의 워크아웃 및 시작 버튼 카드
+
 @Composable
 fun TodayWorkoutCard(onStartClick: () -> Unit) {
     Card(
@@ -159,7 +185,6 @@ fun TodayWorkoutCard(onStartClick: () -> Unit) {
     }
 }
 
-// 월별 통계 수치 요약 로우
 @Composable
 fun MonthlyStatsRow(distance: Double, count: Int, timeSec: Long) {
     val hours = timeSec / 3600
@@ -172,7 +197,6 @@ fun MonthlyStatsRow(distance: Double, count: Int, timeSec: Long) {
     }
 }
 
-// 개별 통계 수치 표시 박스
 @Composable
 fun StatBox(label: String, value: String, modifier: Modifier = Modifier) {
     Card(
@@ -193,7 +217,6 @@ fun StatBox(label: String, value: String, modifier: Modifier = Modifier) {
     }
 }
 
-// 날씨 정보 표시
 @Composable
 fun EnvironmentCard() {
     Card(
@@ -212,7 +235,6 @@ fun EnvironmentCard() {
             }
             Spacer(modifier = Modifier.height(16.dp))
 
-            // TODO: 크롤링으로 실시간 정보 가져오기
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 OutlinedBadge("🌡️ 기온 14°C")
                 OutlinedBadge("🌫️ 미세먼지 좋음")
@@ -222,9 +244,12 @@ fun EnvironmentCard() {
     }
 }
 
-// 전체 러닝 기록 리스트 출력 섹션
 @Composable
-fun WorkoutHistorySection(workouts: List<WorkoutRecordEntity>) {
+fun WorkoutHistorySection(
+    workouts: List<WorkoutRecordEntity>,
+    viewModel: RunningReadyViewModel,
+    onRecordClick: (WorkoutRecordEntity) -> Unit
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "전체 러닝 기록",
@@ -248,17 +273,19 @@ fun WorkoutHistorySection(workouts: List<WorkoutRecordEntity>) {
             }
         } else {
             workouts.forEach { record ->
+                var showMenu by remember { mutableStateOf(false) }
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 12.dp)
-                        .clickable { /* 상세 기록 화면 연동 필요 */ },
+                        .clickable { onRecordClick(record) }, // 클릭 시 상세 화면 이동
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Row(
                         modifier = Modifier
-                            .padding(horizontal = 20.dp, vertical = 16.dp)
+                            .padding(start = 20.dp, end = 8.dp, top = 16.dp, bottom = 16.dp)
                             .fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -268,11 +295,34 @@ fun WorkoutHistorySection(workouts: List<WorkoutRecordEntity>) {
                         val secs = record.timeElapsed % 60
                         val timeStr = String.format("%02d:%02d", mins, secs)
 
-                        Text(dateStr, fontSize = 14.sp, color = Color.DarkGray)
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Text(String.format("%.1fkm", record.distance), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Text(timeStr, fontSize = 16.sp, color = Color.Gray)
-                            Text(record.paceStr, fontSize = 16.sp, color = Color(0xFF1976D2), fontWeight = FontWeight.Bold)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(dateStr, fontSize = 14.sp, color = Color.DarkGray)
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                modifier = Modifier.padding(top = 8.dp),
+                                verticalAlignment = Alignment.Bottom
+                            ) {
+                                Text(String.format("%.2f km", record.distance), fontSize = 24.sp, fontWeight = FontWeight.Black)
+                                Text(timeStr, fontSize = 18.sp, color = Color.DarkGray, fontWeight = FontWeight.Bold)
+                                Text(record.paceStr, fontSize = 18.sp, color = Color(0xFF1976D2), fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        // 더보기 메뉴 (삭제 기능)
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "더보기", tint = Color.Gray)
+                            }
+                            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("삭제하기", color = Color.Red) },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.deleteWorkout(record)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -281,27 +331,135 @@ fun WorkoutHistorySection(workouts: List<WorkoutRecordEntity>) {
     }
 }
 
-// 상태 텍스트용 채워진 뱃지 UI 컴포넌트
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WorkoutDetailScreen(record: WorkoutRecordEntity, onBackClick: () -> Unit) {
+    // 날짜 포맷
+    val fullDateStr = SimpleDateFormat("yyyy. M. d. - HH:mm", Locale.KOREAN).format(Date(record.timestamp))
+    // 요일 포맷
+    val amPm = SimpleDateFormat("a", Locale.KOREAN).format(Date(record.timestamp))
+    val dayStr = SimpleDateFormat("EEEE", Locale.KOREAN).format(Date(record.timestamp))
+    val titleStr = "$dayStr $amPm 러닝"
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+    ) {
+        // 상단 뒤로가기
+        TopAppBar(
+            title = { },
+            navigationIcon = {
+                IconButton(onClick = onBackClick) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+        )
+
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            // 타이틀 영역
+            Text(fullDateStr, color = Color.Gray, fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(titleStr, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // 메인 거리 데이터
+            Text(
+                text = String.format("%.2f", record.distance),
+                fontSize = 90.sp,
+                fontWeight = FontWeight.Black,
+                fontStyle = FontStyle.Italic,
+                letterSpacing = (-2).sp
+            )
+            Text("킬로미터", fontSize = 16.sp, color = Color.Gray)
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            // 요약 수치 영역 (페이스, 시간, 칼로리)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                val mins = record.timeElapsed / 60
+                val secs = record.timeElapsed % 60
+                val timeStr = String.format("%02d:%02d", mins, secs)
+
+                DetailStatItem("페이스", record.paceStr)
+                DetailStatItem("시간", timeStr)
+                DetailStatItem("칼로리", "${record.calories}")
+            }
+
+            Spacer(modifier = Modifier.height(40.dp))
+            HorizontalDivider(color = Color(0xFFEEEEEE))
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // 스플릿 데이터
+            Text("구간", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                Text("Km", modifier = Modifier.weight(1f), color = Color.Gray, fontSize = 14.sp)
+                Text("평균 페이스", modifier = Modifier.weight(2f), color = Color.Gray, fontSize = 14.sp)
+            }
+
+            // CSV로 저장된 스플릿 타임 파싱 및 출력
+            val splits = record.splitsCsv.split(",").filter { it.isNotBlank() }
+            if (splits.isEmpty()) {
+                Text("구간 데이터가 없습니다.", color = Color.Gray, modifier = Modifier.padding(vertical = 16.dp))
+            } else {
+                splits.forEachIndexed { index, splitTimeStr ->
+                    val splitSecs = splitTimeStr.toLongOrNull() ?: 0L
+                    val splitMins = splitSecs / 60
+                    val splitRemainSecs = splitSecs % 60
+                    val splitPace = String.format("%d'%02d\"", splitMins, splitRemainSecs)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("${index + 1}", modifier = Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Box(modifier = Modifier.weight(2f)) {
+                            Text(
+                                text = splitPace,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .background(Color(0xFFF5F5F5), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(60.dp)) // 하단 여백
+        }
+    }
+}
+
+@Composable
+fun DetailStatItem(label: String, value: String) {
+    Column {
+        Text(value, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(label, fontSize = 14.sp, color = Color.Gray)
+    }
+}
+
+// 뱃지 UI 컴포넌트들
 @Composable
 fun BadgeUI(text: String, bgColor: Color, textColor: Color) {
-    Box(
-        modifier = Modifier
-            .background(bgColor, RoundedCornerShape(8.dp))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-    ) {
+    Box(modifier = Modifier.background(bgColor, RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 4.dp)) {
         Text(text, fontSize = 12.sp, color = textColor, fontWeight = FontWeight.SemiBold)
     }
 }
 
-// 테두리 형태의 뱃지 UI 컴포넌트
 @Composable
 fun OutlinedBadge(text: String) {
-    Box(
-        modifier = Modifier
-            .background(Color.White, RoundedCornerShape(12.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center
-    ) {
+    Box(modifier = Modifier.background(Color.White, RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
         Text(text, fontSize = 12.sp, color = Color.DarkGray)
     }
 }
