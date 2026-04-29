@@ -47,6 +47,9 @@ interface RunningDao {
 
     @Query("SELECT * FROM workout_records ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLastWorkout(): WorkoutRecordEntity?
+
+    @Delete
+    suspend fun deleteWorkout(record: WorkoutRecordEntity)
 }
 
 

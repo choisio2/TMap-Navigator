@@ -267,7 +267,33 @@ class RunningViewModel(application: Application) : AndroidViewModel(application)
     // 성인 평균 체중(65kg) 기준 칼로리 소모량 계산
     // TODO: 추후에 개인 정보 받아서 계산하는 로직으로 수정하기
     fun calculateCalories(): Int {
-        return (65 * distance * 1.036).roundToInt()
+        if (distance <= 0.0 || timeElapsed <= 0L) return 0
+
+        val durationMin = timeElapsed / 60.0
+        val paceMinPerKm = durationMin / distance
+        val weightKg = 65.0
+
+        val met = getMetByPace(paceMinPerKm)
+        val durationHour = durationMin / 60.0
+
+        // 공식: Kcal = MET * 체중(kg) * 시간(h)
+        return (met * weightKg * durationHour).roundToInt()
+    }
+
+    // 페이스 구간별 MET(대사당량) 값 반환
+    private fun getMetByPace(paceMinPerKm: Double): Double {
+        return when {
+            paceMinPerKm >= 15.0 -> 2.8   // 매우 느린 걷기
+            paceMinPerKm >= 13.0 -> 3.0   // 느린 걷기
+            paceMinPerKm >= 11.0 -> 3.5   // 보통 걷기
+            paceMinPerKm >= 9.5  -> 5.0   // 빠른 걷기
+            paceMinPerKm >= 8.0  -> 6.0   // 가벼운 조깅
+            paceMinPerKm >= 7.0  -> 8.3   // 조깅
+            paceMinPerKm >= 6.0  -> 9.8   // 보통 러닝 (약 10km/h)
+            paceMinPerKm >= 5.0  -> 11.0  // 빠른 러닝 (약 12km/h)
+            paceMinPerKm >= 4.5  -> 11.8  // 아주 빠른 러닝
+            else -> 12.5                  // 완전 러닝 속도
+        }
     }
 
     override fun onCleared() {
@@ -395,7 +421,7 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     @SuppressLint("MissingPermission")
     private fun fetchCurrentLocation(tMapView: TMapView) {
-        // 캐시된 최근 위치를 우선적으로 적용하여 초기 지도 로딩 최적화
+        // 캐시된 최근 위치를 우선적으로 적용하여 초기 위치 빠르게 잡기
         fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
             if (loc != null) {
                 currentLocation = TMapPoint(loc.latitude, loc.longitude)
@@ -824,12 +850,17 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                     if (lastSession == null) {
                         Text("지난 기록이 없습니다.", fontSize = 14.sp, color = Color.DarkGray)
                     } else {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             val distDiff = viewModel.distance - lastSession.distance
                             val calDiff = viewModel.calculateCalories() - lastSession.calories
 
-                            DiffBadge("거리", String.format("%+.1fkm", distDiff), if(distDiff>=0) Color(0xFF4CAF50) else Color(0xFF1976D2))
-                            DiffBadge("칼로리", String.format("%+dkcal", calDiff), if(calDiff>=0) Color(0xFF4CAF50) else Color(0xFF1976D2))
+                            val currentPaceTotalSec = if (viewModel.distance > 0) viewModel.timeElapsed / viewModel.distance else 0.0
+                            val lastPaceTotalSec = if (lastSession.distance > 0) lastSession.timeElapsed.toDouble() / lastSession.distance else 0.0
+                            val paceDiff = currentPaceTotalSec - lastPaceTotalSec
+
+                            DiffBadge("거리", String.format("%+.1fkm", distDiff), if(distDiff >= 0) Color(0xFF4CAF50) else Color(0xFF1976D2), Modifier.weight(1f))
+                            DiffBadge("칼로리", String.format("%+dkcal", calDiff), if(calDiff >= 0) Color(0xFF4CAF50) else Color(0xFF1976D2), Modifier.weight(1f))
+                            DiffBadge("페이스", String.format("%+d초", paceDiff.toInt()), if(paceDiff <= 0) Color(0xFF4CAF50) else Color(0xFF1976D2), Modifier.weight(1f))
                         }
                     }
                 }
@@ -917,9 +948,11 @@ fun SummaryItem(label: String, value: String, unit: String) {
 
 // 이전 세션 기록과 증감 수치 표시용 뱃지 컴포넌트
 @Composable
-fun DiffBadge(label: String, diffStr: String, diffColor: Color) {
+fun DiffBadge(label: String, diffStr: String, diffColor: Color, modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier.background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp)).padding(horizontal = 24.dp, vertical = 12.dp),
+        modifier = modifier
+            .background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp))
+            .padding(vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(text = label, fontSize = 12.sp, color = Color.Gray)
