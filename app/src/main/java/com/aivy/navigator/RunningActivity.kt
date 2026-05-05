@@ -204,15 +204,29 @@ class RunningViewModel(application: Application) : AndroidViewModel(application)
         context.stopService(serviceIntent)
 
         viewModelScope.launch(Dispatchers.IO) {
-            // 이전 세션 기록 조회
+            // 10초 미만 운동 시 저장 안 되도록
+            if (timeElapsed < 10) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "10초 미만의 러닝은 기록되지 않습니다.", Toast.LENGTH_SHORT).show()
+                    runState = RunState.FINISHED
+                }
+                return@launch
+            }
+
+            // 1km 미만의 거리도 기록 저장
+            val remainderDist = distance - (currentKmTarget - 1)
+            if (remainderDist > 0.01) { // 10m 이상 이동했다면 마지막 구간으로 저장
+                val splitDuration = timeElapsed - lastSplitTime
+                kmSplits.add(splitDuration)
+            }
+
             lastWorkoutRecord = runningDao.getLastWorkout()
 
             // 신규 기록 저장
-            val calories = calculateCalories()
             val newRecord = WorkoutRecordEntity(
                 distance = distance,
                 timeElapsed = timeElapsed,
-                calories = calories,
+                calories = calculateCalories(context),
                 paceStr = calculatePace(),
                 splitsCsv = kmSplits.joinToString(",")
             )
@@ -222,6 +236,35 @@ class RunningViewModel(application: Application) : AndroidViewModel(application)
                 runState = RunState.FINISHED
             }
         }
+    }
+
+    // 내부에서 체중을 불러와 MET 기반으로 계산
+    fun calculateCalories(context: Context): Int {
+        if (distance <= 0.0 || timeElapsed <= 0L) return 0
+
+        // SharedPreferences에서 사용자 몸무게 가져오기 (기본값 65kg)
+        val sharedPref = context.getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
+        val weightKg = sharedPref.getFloat("user_weight", 65f).toDouble()
+
+        val durationMin = timeElapsed / 60.0
+        val paceMinPerKm = durationMin / distance
+
+        // MET 산출식
+        val met = when {
+            paceMinPerKm >= 15.0 -> 2.8
+            paceMinPerKm >= 13.0 -> 3.0
+            paceMinPerKm >= 11.0 -> 3.5
+            paceMinPerKm >= 9.5  -> 5.0
+            paceMinPerKm >= 8.0  -> 6.0
+            paceMinPerKm >= 7.0  -> 8.3
+            paceMinPerKm >= 6.0  -> 9.8
+            paceMinPerKm >= 5.0  -> 11.0
+            paceMinPerKm >= 4.5  -> 11.8
+            else -> 12.5
+        }
+        val durationHour = durationMin / 60.0
+
+        return (met * weightKg * durationHour).roundToInt()
     }
 
     private fun startTimer() {
@@ -262,38 +305,6 @@ class RunningViewModel(application: Application) : AndroidViewModel(application)
         val minutes = totalMinutes.toInt()
         val secs = ((totalMinutes - minutes) * 60).toInt()
         return String.format("%d'%02d\"", minutes, secs)
-    }
-
-    // 성인 평균 체중(65kg) 기준 칼로리 소모량 계산
-    // TODO: 추후에 개인 정보 받아서 계산하는 로직으로 수정하기
-    fun calculateCalories(): Int {
-        if (distance <= 0.0 || timeElapsed <= 0L) return 0
-
-        val durationMin = timeElapsed / 60.0
-        val paceMinPerKm = durationMin / distance
-        val weightKg = 65.0
-
-        val met = getMetByPace(paceMinPerKm)
-        val durationHour = durationMin / 60.0
-
-        // 공식: Kcal = MET * 체중(kg) * 시간(h)
-        return (met * weightKg * durationHour).roundToInt()
-    }
-
-    // 페이스 구간별 MET(대사당량) 값 반환
-    private fun getMetByPace(paceMinPerKm: Double): Double {
-        return when {
-            paceMinPerKm >= 15.0 -> 2.8   // 매우 느린 걷기
-            paceMinPerKm >= 13.0 -> 3.0   // 느린 걷기
-            paceMinPerKm >= 11.0 -> 3.5   // 보통 걷기
-            paceMinPerKm >= 9.5  -> 5.0   // 빠른 걷기
-            paceMinPerKm >= 8.0  -> 6.0   // 가벼운 조깅
-            paceMinPerKm >= 7.0  -> 8.3   // 조깅
-            paceMinPerKm >= 6.0  -> 9.8   // 보통 러닝 (약 10km/h)
-            paceMinPerKm >= 5.0  -> 11.0  // 빠른 러닝 (약 12km/h)
-            paceMinPerKm >= 4.5  -> 11.8  // 아주 빠른 러닝
-            else -> 12.5                  // 완전 러닝 속도
-        }
     }
 
     override fun onCleared() {
@@ -793,6 +804,7 @@ fun RunningDataItem(label: String, value: String) {
 // ==========================================
 @Composable
 fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
+    val context = LocalContext.current
     val lastSession = viewModel.lastWorkoutRecord
 
     LazyColumn(
@@ -829,7 +841,7 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                     Spacer(modifier = Modifier.height(24.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
                         SummaryItem("평균", viewModel.calculatePace(), "")
-                        SummaryItem("칼로리", viewModel.calculateCalories().toString(), "kcal")
+                        SummaryItem("칼로리", viewModel.calculateCalories(context).toString(), "kcal")
                     }
                 }
             }
@@ -852,7 +864,7 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                     } else {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             val distDiff = viewModel.distance - lastSession.distance
-                            val calDiff = viewModel.calculateCalories() - lastSession.calories
+                            val calDiff = viewModel.calculateCalories(context) - lastSession.calories
 
                             val currentPaceTotalSec = if (viewModel.distance > 0) viewModel.timeElapsed / viewModel.distance else 0.0
                             val lastPaceTotalSec = if (lastSession.distance > 0) lastSession.timeElapsed.toDouble() / lastSession.distance else 0.0
@@ -916,17 +928,6 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF102841)),
                     shape = RoundedCornerShape(12.dp)
                 ) { Text("홈으로", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-
-                // TODO: 공유기능 구현
-                OutlinedButton(
-                    onClick = { /* 공유 기능 연동 가능 */ },
-                    modifier = Modifier.weight(1f).height(56.dp),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.Black)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("공유", fontSize = 16.sp, color = Color.Black, fontWeight = FontWeight.Bold)
-                }
             }
             Spacer(modifier = Modifier.height(24.dp))
         }
