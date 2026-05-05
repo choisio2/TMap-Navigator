@@ -1,5 +1,6 @@
-package com.aivy.navigator
+package com.aivy.navigator.running
 
+import android.R
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
@@ -52,7 +53,7 @@ class RunningService : Service() {
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("러닝 측정 중")
             .setContentText("AIVY가 화면이 꺼진 상태에서도 러닝을 기록하고 있습니다.")
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setSmallIcon(R.drawable.ic_menu_mylocation)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setCategory(Notification.CATEGORY_SERVICE)

@@ -1,4 +1,4 @@
-package com.aivy.navigator
+package com.aivy.navigator.running
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -48,6 +48,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.aivy.navigator.BuildConfig
+import com.aivy.navigator.R
 import com.google.android.gms.location.*
 import com.skt.Tmap.TMapMarkerItem
 import com.skt.Tmap.TMapPoint
@@ -356,7 +358,7 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
         myLocationBaseBitmap = getBitmapFromVectorDrawable(R.drawable.ic_my_location_dot)
@@ -886,7 +888,7 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                             val lastPaceTotalSec = if (lastSession.workout.totalDistance > 0) lastSession.workout.totalTimeElapsed.toDouble() / lastSession.workout.totalDistance else 0.0
                             val paceDiffSec = currentPaceTotalSec - lastPaceTotalSec
 
-                            val absPaceDiff = kotlin.math.abs(paceDiffSec).toInt()
+                            val absPaceDiff = abs(paceDiffSec).toInt()
                             val diffMins = absPaceDiff / 60
                             val diffSecs = absPaceDiff % 60
                             val sign = if (paceDiffSec >= 0) "+" else "-"

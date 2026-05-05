@@ -1,4 +1,4 @@
-package com.aivy.navigator
+package com.aivy.navigator.running
 
 import android.app.Application
 import android.content.Context
@@ -170,7 +170,7 @@ fun RunningReadyScreen(
                         Text("🚶", fontSize = 18.sp)
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("운동", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text("러닝", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }
             },
             actions = {

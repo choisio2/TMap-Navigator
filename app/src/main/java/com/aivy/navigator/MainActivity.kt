@@ -1,6 +1,5 @@
 package com.aivy.navigator
 
-import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
@@ -8,6 +7,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.aivy.navigator.running.RunningReadyActivity
+import com.aivy.navigator.walking.WalkingActivity
 import kotlin.jvm.java
 
 class MainActivity : AppCompatActivity() {
@@ -30,9 +31,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 러닝 대시보드 화면으로 이동
-        val bbtnRunning= findViewById<Button>(R.id.btnRunning)
-        bbtnRunning.setOnClickListener {
+        val btnRunning= findViewById<Button>(R.id.btnRunning)
+        btnRunning.setOnClickListener {
             val intent = Intent(this, RunningReadyActivity::class.java)
+            startActivity(intent)
+        }
+
+        val btnWalking= findViewById<Button>(R.id.btnWalking)
+        btnWalking.setOnClickListener {
+            val intent = Intent(this, WalkingActivity::class.java)
             startActivity(intent)
         }
 
