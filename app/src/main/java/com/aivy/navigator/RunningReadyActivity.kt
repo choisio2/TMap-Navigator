@@ -40,20 +40,20 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import java.text.SimpleDateFormat
 import java.util.*
-
-import com.aivy.navigator.data.database.AppDatabase
-import com.aivy.navigator.data.database.WorkoutRecordEntity
+import com.aivy.navigator.database.AppDatabase
+import com.aivy.navigator.database.entity.WorkoutWithSplits
 
 class RunningReadyViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getDatabase(application)
     private val runningDao = db.runningDao()
 
-    val allWorkouts = runningDao.getAllWorkouts()
+    // 1:N 관계 데이터를 가져오기 위해 getAllWorkoutsWithSplits 사용
+    val allWorkouts = runningDao.getAllWorkoutsWithSplits()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    fun deleteWorkout(record: WorkoutRecordEntity) {
+    fun deleteWorkout(record: WorkoutWithSplits) {
         viewModelScope.launch(Dispatchers.IO) {
-            runningDao.deleteWorkout(record)
+            runningDao.deleteWorkout(record.workout)
         }
     }
 }
@@ -63,7 +63,7 @@ class RunningReadyActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             val viewModel: RunningReadyViewModel = viewModel()
-            var selectedRecord by remember { mutableStateOf<WorkoutRecordEntity?>(null) }
+            var selectedRecord by remember { mutableStateOf<WorkoutWithSplits?>(null) }
 
             if (selectedRecord != null) {
                 BackHandler { selectedRecord = null }
@@ -87,7 +87,7 @@ class RunningReadyActivity : ComponentActivity() {
 fun RunningReadyScreen(
     viewModel: RunningReadyViewModel,
     onBackClick: () -> Unit,
-    onRecordClick: (WorkoutRecordEntity) -> Unit
+    onRecordClick: (WorkoutWithSplits) -> Unit
 ) {
     val context = LocalContext.current
     val workouts by viewModel.allWorkouts.collectAsState()
@@ -104,16 +104,16 @@ fun RunningReadyScreen(
     // 사용자가 운동했던 년/월 목록만 추출해서 동적 드롭다운 리스트 생성
     val availableYears = remember(workouts) {
         val years = workouts.map {
-            Calendar.getInstance().apply { timeInMillis = it.timestamp }.get(Calendar.YEAR)
+            Calendar.getInstance().apply { timeInMillis = it.workout.timestamp }.get(Calendar.YEAR)
         }.distinct().sortedDescending()
         if (years.isEmpty()) listOf(currentCalendar.get(Calendar.YEAR)) else years
     }
 
     val availableMonths = remember(workouts, selectedYear) {
         val months = workouts.filter {
-            Calendar.getInstance().apply { timeInMillis = it.timestamp }.get(Calendar.YEAR) == selectedYear
+            Calendar.getInstance().apply { timeInMillis = it.workout.timestamp }.get(Calendar.YEAR) == selectedYear
         }.map {
-            Calendar.getInstance().apply { timeInMillis = it.timestamp }.get(Calendar.MONTH) + 1
+            Calendar.getInstance().apply { timeInMillis = it.workout.timestamp }.get(Calendar.MONTH) + 1
         }.distinct().sortedDescending()
 
         if (months.isEmpty()) listOf(currentCalendar.get(Calendar.MONTH) + 1) else months
@@ -129,16 +129,16 @@ fun RunningReadyScreen(
     val filteredWorkouts by remember {
         derivedStateOf {
             workouts.filter { record ->
-                val cal = Calendar.getInstance().apply { timeInMillis = record.timestamp }
+                val cal = Calendar.getInstance().apply { timeInMillis = record.workout.timestamp }
                 cal.get(Calendar.YEAR) == selectedYear && (cal.get(Calendar.MONTH) + 1) == selectedMonth
             }
         }
     }
 
     // 필터링된 데이터들만 계산
-    val totalDistance = filteredWorkouts.sumOf { it.distance }
+    val totalDistance = filteredWorkouts.sumOf { it.workout.totalDistance }
     val workoutCount = filteredWorkouts.size
-    val totalTimeSeconds = filteredWorkouts.sumOf { it.timeElapsed }
+    val totalTimeSeconds = filteredWorkouts.sumOf { it.workout.totalTimeElapsed }
 
     // 키 몸무게 정보 저장 관리
     var showProfileDialog by remember { mutableStateOf(false) }
@@ -174,7 +174,6 @@ fun RunningReadyScreen(
                 }
             },
             actions = {
-                // 우측 상단 내 키/몸무게 수정 아이콘 추가
                 IconButton(onClick = { showProfileDialog = true }) {
                     Icon(Icons.Default.Person, contentDescription = "프로필 수정", tint = Color.Black)
                 }
@@ -267,7 +266,6 @@ fun RunningReadyScreen(
         }
     }
 
-    // 키/몸무게를 수정할 수 있는 다이얼로그
     if (showProfileDialog) {
         AlertDialog(
             onDismissRequest = { showProfileDialog = false },
@@ -374,9 +372,9 @@ fun StatBox(label: String, value: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun WorkoutHistorySection(
-    workouts: List<WorkoutRecordEntity>,
+    workouts: List<WorkoutWithSplits>,
     viewModel: RunningReadyViewModel,
-    onRecordClick: (WorkoutRecordEntity) -> Unit
+    onRecordClick: (WorkoutWithSplits) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -418,9 +416,9 @@ fun WorkoutHistorySection(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val dateStr = SimpleDateFormat("MM/dd (E) HH:mm", Locale.KOREAN).format(Date(record.timestamp))
-                        val mins = record.timeElapsed / 60
-                        val secs = record.timeElapsed % 60
+                        val dateStr = SimpleDateFormat("MM/dd (E) HH:mm", Locale.KOREAN).format(Date(record.workout.timestamp))
+                        val mins = record.workout.totalTimeElapsed / 60
+                        val secs = record.workout.totalTimeElapsed % 60
                         val timeStr = String.format("%02d:%02d", mins, secs)
 
                         Column(modifier = Modifier.weight(1f)) {
@@ -431,9 +429,9 @@ fun WorkoutHistorySection(
                                 modifier = Modifier.padding(top = 8.dp),
                                 verticalAlignment = Alignment.Bottom
                             ) {
-                                Text(String.format("%.2f km", record.distance), fontSize = 24.sp, fontWeight = FontWeight.Black)
+                                Text(String.format("%.2f km", record.workout.totalDistance), fontSize = 24.sp, fontWeight = FontWeight.Black)
                                 Text(timeStr, fontSize = 18.sp, color = Color.DarkGray, fontWeight = FontWeight.Bold)
-                                Text(record.paceStr, fontSize = 18.sp, color = Color(0xFF1976D2), fontWeight = FontWeight.Bold)
+                                Text(record.workout.averagePaceStr, fontSize = 18.sp, color = Color(0xFF1976D2), fontWeight = FontWeight.Bold)
                             }
                         }
 
@@ -460,10 +458,10 @@ fun WorkoutHistorySection(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WorkoutDetailScreen(record: WorkoutRecordEntity, onBackClick: () -> Unit) {
-    val fullDateStr = SimpleDateFormat("yyyy. M. d. - HH:mm", Locale.KOREAN).format(Date(record.timestamp))
-    val amPm = SimpleDateFormat("a", Locale.KOREAN).format(Date(record.timestamp))
-    val dayStr = SimpleDateFormat("EEEE", Locale.KOREAN).format(Date(record.timestamp))
+fun WorkoutDetailScreen(record: WorkoutWithSplits, onBackClick: () -> Unit) {
+    val fullDateStr = SimpleDateFormat("yyyy. M. d. - HH:mm", Locale.KOREAN).format(Date(record.workout.timestamp))
+    val amPm = SimpleDateFormat("a", Locale.KOREAN).format(Date(record.workout.timestamp))
+    val dayStr = SimpleDateFormat("EEEE", Locale.KOREAN).format(Date(record.workout.timestamp))
     val titleStr = "$dayStr $amPm 러닝"
 
     Column(
@@ -493,7 +491,7 @@ fun WorkoutDetailScreen(record: WorkoutRecordEntity, onBackClick: () -> Unit) {
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
-                text = String.format("%.2f", record.distance),
+                text = String.format("%.2f", record.workout.totalDistance),
                 fontSize = 90.sp,
                 fontWeight = FontWeight.Black,
                 fontStyle = FontStyle.Italic,
@@ -504,88 +502,84 @@ fun WorkoutDetailScreen(record: WorkoutRecordEntity, onBackClick: () -> Unit) {
             Spacer(modifier = Modifier.height(40.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                val mins = record.timeElapsed / 60
-                val secs = record.timeElapsed % 60
+                val mins = record.workout.totalTimeElapsed / 60
+                val secs = record.workout.totalTimeElapsed % 60
                 val timeStr = String.format("%02d:%02d", mins, secs)
 
-                DetailStatItem("페이스", record.paceStr)
+                DetailStatItem("페이스", record.workout.averagePaceStr)
                 DetailStatItem("시간", timeStr)
-                DetailStatItem("칼로리", "${record.calories}")
+                DetailStatItem("칼로리", "${record.workout.calories}")
             }
 
             Spacer(modifier = Modifier.height(40.dp))
             HorizontalDivider(color = Color(0xFFEEEEEE))
             Spacer(modifier = Modifier.height(32.dp))
 
-            Text("구간", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(24.dp))
+            Text("구간 기록", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(16.dp))
 
-            Row(modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp)) {
-                Text("Km", modifier = Modifier.weight(0.5f), color = Color.Gray, fontSize = 14.sp)
-                Text("평균 페이스", modifier = Modifier.weight(2.5f), color = Color.Gray, fontSize = 14.sp)
+            // 테이블 헤더
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF7F8FA), RoundedCornerShape(8.dp))
+                    .padding(vertical = 12.dp, horizontal = 6.dp)
+            ) {
+                Text("km", modifier = Modifier.weight(0.8f), color = Color.DarkGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("구간 페이스", modifier = Modifier.weight(1.25f), color = Color.DarkGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("누적 시간", modifier = Modifier.weight(1.25f), color = Color.DarkGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
 
-            val splits = record.splitsCsv.split(",").filter { it.isNotBlank() }
+            val splits = record.splits.sortedBy { it.kmIndex }
 
             if (splits.isEmpty()) {
                 Text("구간 데이터가 없습니다.", color = Color.Gray, modifier = Modifier.padding(vertical = 16.dp))
             } else {
-                val paceDataList = splits.mapIndexed { index, splitTimeStr ->
-                    val splitSecs = splitTimeStr.toLongOrNull() ?: 0L
-                    val remainder = record.distance - index
+                splits.forEachIndexed { index, splitRecord ->
+                    val splitSecs = splitRecord.timeElapsedSec
+                    val remainder = record.workout.totalDistance - index
                     val isLast = index == splits.size - 1
 
-                    // 마지막 구간이 1km 미만일 경우 자투리 거리를 소수점 둘째 자리까지 추출
-                    val splitDist = if (isLast && remainder > 0.0) {
+                    // 마지막 구간이 1km 미만일 경우 자투리 거리를 계산
+                    val splitDist = if (isLast && remainder > 0.0 && remainder < 1.0) {
                         Math.round(remainder * 100) / 100.0
                     } else {
                         1.0
                     }
 
+                    // 페이스 계산
                     val paceSecsPerKm = if (splitDist > 0) (splitSecs / splitDist).toLong() else 0L
-                    Pair(splitDist, paceSecsPerKm)
-                }
-
-                // 페이스 막대 그래프 차이 극대화
-                val maxPace = paceDataList.maxOfOrNull { it.second } ?: 1L
-                val minPace = paceDataList.minOfOrNull { it.second } ?: 0L
-                val paceRange = (maxPace - minPace).coerceAtLeast(1L)
-
-                paceDataList.forEachIndexed { index, (splitDist, paceSecs) ->
-                    val splitMins = paceSecs / 60
-                    val splitRemainSecs = paceSecs % 60
+                    val splitMins = paceSecsPerKm / 60
+                    val splitRemainSecs = paceSecsPerKm % 60
                     val splitPaceStr = String.format("%d'%02d\"", splitMins, splitRemainSecs)
 
-                    // 거리가 1km 미만이어도 소수점으로 출력
-                    val distanceLabel = if (splitDist < 1.0) String.format("%.2f", splitDist) else "${index + 1}"
+                    // 누적 시간 포맷팅
+                    val cumHours = splitRecord.cumulativeTimeSec / 3600
+                    val cumMins = (splitRecord.cumulativeTimeSec % 3600) / 60
+                    val cumSecs = splitRecord.cumulativeTimeSec % 60
+                    val cumulativeTimeStr = if (cumHours > 0) {
+                        String.format("%d:%02d:%02d", cumHours, cumMins, cumSecs)
+                    } else {
+                        String.format("%02d:%02d", cumMins, cumSecs)
+                    }
 
-                    // 가장 빠른 페이스라도 최소 20%의 바 길이를 갖도록 보정 (0.2f + 0.8f * 비율)
-                    val fraction = 0.2f + 0.8f * ((paceSecs - minPace).toFloat() / paceRange.toFloat())
+                    val distanceLabel = if (splitDist < 1.0) String.format("%.2fkm", splitDist) else "${index + 1}km"
 
+                    // 테이블 데이터 행
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 6.dp),
+                            .padding(vertical = 12.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(distanceLabel, modifier = Modifier.weight(0.5f), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(distanceLabel, modifier = Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(splitPaceStr, modifier = Modifier.weight(1f), fontSize = 16.sp)
+                        Text(cumulativeTimeStr, modifier = Modifier.weight(1f), fontSize = 16.sp, color = Color.Gray)
+                    }
 
-                        Box(modifier = Modifier.weight(2.5f), contentAlignment = Alignment.CenterStart) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(fraction) // 동적으로 계산된 비율 적용
-                                    .height(36.dp)
-                                    .background(Color(0xFFF0F0F0), RoundedCornerShape(4.dp))
-                            )
-                            Text(
-                                text = splitPaceStr,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 12.dp)
-                            )
-                        }
+                    // 마지막 항목이 아니면 구분선 추가
+                    if (!isLast) {
+                        HorizontalDivider(color = Color(0xFFF0F0F0), thickness = 1.dp)
                     }
                 }
             }
