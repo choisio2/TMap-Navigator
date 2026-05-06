@@ -5,10 +5,12 @@ import android.os.Bundle
 import android.widget.Button
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.aivy.navigator.running.RunningReadyActivity
-import com.aivy.navigator.walking.WalkingActivity
+import com.aivy.navigator.walking.PedometerService
+import com.aivy.navigator.walking.WalkingReadyActivity
 import kotlin.jvm.java
 
 class MainActivity : AppCompatActivity() {
@@ -39,9 +41,13 @@ class MainActivity : AppCompatActivity() {
 
         val btnWalking= findViewById<Button>(R.id.btnWalking)
         btnWalking.setOnClickListener {
-            val intent = Intent(this, WalkingActivity::class.java)
+            val intent = Intent(this, WalkingReadyActivity::class.java)
             startActivity(intent)
         }
+
+        // 만보계 항상 키기
+        val serviceIntent = Intent(this, PedometerService::class.java)
+        ContextCompat.startForegroundService(this, serviceIntent)
 
     }
 }

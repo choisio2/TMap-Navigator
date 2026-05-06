@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
 
     <application
         android:allowBackup="true"
@@ -25,6 +27,12 @@
             android:name=".CameraActivity"
             android:exported="false" />
         <activity
+            android:name=".walking.WalkingActivity"
+            android:exported="false" />
+        <activity
+            android:name=".walking.WalkingReadyActivity"
+            android:exported="false" />
+        <activity
             android:name=".running.RunningActivity"
             android:exported="false" />
         <activity
@@ -34,16 +42,17 @@
         <activity
             android:name=".TmapsActivity"
             android:exported="false" />
+
         <meta-data
             android:name="com.naver.maps.map.NCP_KEY_ID"
             android:value="s23srtgglv" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
@@ -53,6 +62,19 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location" />
+
+        <service
+            android:name=".walking.WalkingService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <service
+            android:name=".walking.PedometerService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="health" />
+
     </application>
 
 </manifest>

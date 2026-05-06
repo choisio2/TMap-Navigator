@@ -8,20 +8,24 @@ import com.aivy.navigator.database.dao.RunningDao
 import com.aivy.navigator.database.entity.SavedCourseEntity
 import com.aivy.navigator.database.entity.SplitRecordEntity
 import com.aivy.navigator.database.entity.WorkoutRecordEntity
+import com.aivy.navigator.database.dao.WalkingDao
+import com.aivy.navigator.database.entity.WalkingRecordEntity
 
 @Database(
     entities = [
         SavedCourseEntity::class,
         WorkoutRecordEntity::class,
-        SplitRecordEntity::class
+        SplitRecordEntity::class,
+        WalkingRecordEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun runningDao(): RunningDao
+    abstract fun walkingDao(): WalkingDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null

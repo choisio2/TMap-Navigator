@@ -912,29 +912,50 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    Text("km별 스플릿", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Text("구간별 페이스", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
 
                     if (viewModel.kmSplits.isEmpty()) {
                         Text("1km 미만의 기록입니다.", fontSize = 14.sp, color = Color.DarkGray)
                     } else {
-                        val maxTime = viewModel.kmSplits.maxOfOrNull { it.timeElapsedSec } ?: 1L
-                        viewModel.kmSplits.forEach { split ->
-                            val timeSec = split.timeElapsedSec
+                        // 각 구간별 페이스 계산
+                        val paceDataList = viewModel.kmSplits.mapIndexed { index, split ->
+                            val splitSecs = split.timeElapsedSec
+                            val remainder = viewModel.distance - index
+                            val isLast = index == viewModel.kmSplits.size - 1
+
+                            // 마지막 구간이 1km 미만일 경우 실제 뛴 자투리 거리 계산
+                            val splitDist = if (isLast && remainder > 0.0 && remainder < 1.0) {
+                                remainder
+                            } else {
+                                1.0
+                            }
+
+                            val paceSecsPerKm = if (splitDist > 0) (splitSecs / splitDist).toLong() else 0L
+
+                            Triple(split, splitDist, paceSecsPerKm)
+                        }
+
+                        val maxPace = paceDataList.maxOfOrNull { it.third } ?: 1L
+
+                        paceDataList.forEachIndexed { index, (split, splitDist, paceSecs) ->
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("${split.kmIndex}km", fontSize = 14.sp, modifier = Modifier.width(40.dp))
+                                val distanceLabel = if (splitDist < 1.0) String.format("%.2fkm", viewModel.distance) else "${split.kmIndex}km"
+
+                                Text(distanceLabel, fontSize = 14.sp, modifier = Modifier.width(48.dp))
 
                                 Box(modifier = Modifier.weight(1f).height(16.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFFE3F2FD))) {
-                                    val fraction = (timeSec.toFloat() / maxTime).coerceIn(0f, 1f)
+                                    val fraction = (paceSecs.toFloat() / maxPace.toFloat()).coerceIn(0f, 1f)
                                     Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(fraction).background(Color(0xFF64B5F6)))
                                 }
 
                                 Spacer(modifier = Modifier.width(8.dp))
-                                val mins = timeSec / 60
-                                val secs = timeSec % 60
+
+                                val mins = paceSecs / 60
+                                val secs = paceSecs % 60
                                 Text(String.format("%d'%02d\"", mins, secs), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }

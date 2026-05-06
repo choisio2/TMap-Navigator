@@ -525,9 +525,9 @@ fun WorkoutDetailScreen(record: WorkoutWithSplits, onBackClick: () -> Unit) {
                     .background(Color(0xFFF7F8FA), RoundedCornerShape(8.dp))
                     .padding(vertical = 12.dp, horizontal = 6.dp)
             ) {
-                Text("km", modifier = Modifier.weight(0.8f), color = Color.DarkGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text("구간 페이스", modifier = Modifier.weight(1.25f), color = Color.DarkGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text("누적 시간", modifier = Modifier.weight(1.25f), color = Color.DarkGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("km", modifier = Modifier.weight(1f), color = Color.DarkGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("구간 페이스", modifier = Modifier.weight(1f), color = Color.DarkGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("누적 시간", modifier = Modifier.weight(1f), color = Color.DarkGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
 
             val splits = record.splits.sortedBy { it.kmIndex }
