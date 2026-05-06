@@ -36,9 +36,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aivy.navigator.database.AppDatabase
+import com.aivy.navigator.database.entity.DailyStepEntity
 import com.aivy.navigator.database.entity.WalkingRecordEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -50,13 +53,28 @@ import java.util.*
 class WalkingReadyViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getDatabase(application)
     private val walkingDao = db.walkingDao()
+    private val dailyStepDao = db.dailyStepDao()
 
+    // 상세 운동 기록 리스트
     val allWalks = walkingDao.getAllWalks()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    val allDailySteps = dailyStepDao.getAllDailySteps()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    private val _selectedDateSteps = MutableStateFlow(0)
+    val selectedDateSteps: StateFlow<Int> = _selectedDateSteps
 
     fun deleteWalk(record: WalkingRecordEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             // walkingDao.deleteWalk(record)
+        }
+    }
+
+    fun loadStepsForDate(year: Int, month: Int, day: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val record = dailyStepDao.getDailyStep(year, month, day)
+            _selectedDateSteps.value = record?.steps ?: 0
         }
     }
 }
@@ -99,13 +117,14 @@ fun WalkingReadyScreen(
     onRecordClick: (WalkingRecordEntity) -> Unit
 ) {
     val context = LocalContext.current
+
     val walks by viewModel.allWalks.collectAsState()
+    val dailyStepsList by viewModel.allDailySteps.collectAsState() // 막대그래프를 위한 전체 일별 기록
 
     // 백그라운드 만보기 데이터 연동
     val prefs = context.getSharedPreferences("pedometer_prefs", Context.MODE_PRIVATE)
     var todaySteps by remember { mutableIntStateOf(prefs.getInt("today_total_steps", 0)) }
 
-    // SharedPreferences 리스너 등록
     DisposableEffect(prefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
             if (key == "today_total_steps") todaySteps = sharedPreferences.getInt(key, 0)
@@ -141,7 +160,6 @@ fun WalkingReadyScreen(
         }.map {
             Calendar.getInstance().apply { timeInMillis = it.timestamp }.get(Calendar.MONTH) + 1
         }.distinct().sortedDescending()
-
         if (months.isEmpty()) listOf(currentCalendar.get(Calendar.MONTH) + 1) else months
     }
 
@@ -152,7 +170,6 @@ fun WalkingReadyScreen(
         }.map {
             Calendar.getInstance().apply { timeInMillis = it.timestamp }.get(Calendar.DAY_OF_MONTH)
         }.distinct().sortedDescending()
-
         if (days.isEmpty()) listOf(currentCalendar.get(Calendar.DAY_OF_MONTH)) else days
     }
 
@@ -164,6 +181,17 @@ fun WalkingReadyScreen(
             selectedDay = availableDays.first()
         }
     }
+
+    LaunchedEffect(selectedYear, selectedMonth, selectedDay) {
+        viewModel.loadStepsForDate(selectedYear, selectedMonth, selectedDay)
+    }
+
+    val selectedDateDbSteps by viewModel.selectedDateSteps.collectAsState()
+
+    val isToday = (selectedYear == currentCalendar.get(Calendar.YEAR) &&
+            selectedMonth == currentCalendar.get(Calendar.MONTH) + 1 &&
+            selectedDay == currentCalendar.get(Calendar.DAY_OF_MONTH))
+    val displayDailyTotalSteps = if (isToday) todaySteps else selectedDateDbSteps
 
     val filteredWalks by remember {
         derivedStateOf {
@@ -216,10 +244,14 @@ fun WalkingReadyScreen(
                 }
             )
 
-            // 주간 걸음 수 차트
-            WeeklyStepChartSection(walks = walks, todaySteps = todaySteps, weekOffset = weekOffset, onWeekChange = { weekOffset += it })
+            WeeklyStepChartSection(
+                dailyWalks = dailyStepsList,
+                todaySteps = todaySteps,
+                weekOffset = weekOffset,
+                onWeekChange = { weekOffset += it }
+            )
 
-            // 년/월 필터링 드롭다운 UI
+            // 년/월/일 필터링 드롭다운 UI
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -309,7 +341,24 @@ fun WalkingReadyScreen(
                 }
             }
 
-            // 필터링된 기록 리스트 영역
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(20.dp)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("${selectedYear}년 ${selectedMonth}월 ${selectedDay}일 누적 걸음", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1565C0))
+                    Text(String.format("%,d 걸음", displayDailyTotalSteps), fontSize = 20.sp, fontWeight = FontWeight.Black, color = Color(0xFF1565C0))
+                }
+            }
+
+            // 필터링된 운동 상세 기록 리스트
             WalkingHistorySection(walks = filteredWalks, onRecordClick = onRecordClick)
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -368,40 +417,40 @@ fun TodayWalkingCard(todaySteps: Int, onStartClick: () -> Unit) {
 // ==========================================
 @Composable
 fun WeeklyStepChartSection(
-    walks: List<WalkingRecordEntity>,
-    todaySteps: Int, // 💡 추가됨: 만보기의 오늘 총 걸음 수를 받아옵니다.
+    dailyWalks: List<DailyStepEntity>,
+    todaySteps: Int,
     weekOffset: Int,
     onWeekChange: (Int) -> Unit
 ) {
-    val calendar = Calendar.getInstance().apply {
+    val weeklySteps = IntArray(7) { 0 }
+    val days = listOf("월", "화", "수", "목", "금", "토", "일")
+
+    val startCalendar = Calendar.getInstance().apply {
         firstDayOfWeek = Calendar.MONDAY
         add(Calendar.WEEK_OF_YEAR, weekOffset)
+        set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
     }
+    val startDateStr = SimpleDateFormat("MM.dd", Locale.getDefault()).format(startCalendar.time)
 
-    calendar.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
-    val startOfWeekMillis = calendar.apply {
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-    }.timeInMillis
-    val startDateStr = SimpleDateFormat("MM.dd", Locale.getDefault()).format(calendar.time)
+    val endCalendar = Calendar.getInstance().apply {
+        firstDayOfWeek = Calendar.MONDAY
+        add(Calendar.WEEK_OF_YEAR, weekOffset)
+        set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY)
+    }
+    val endDateStr = SimpleDateFormat("MM.dd", Locale.getDefault()).format(endCalendar.time)
 
-    calendar.add(Calendar.DAY_OF_WEEK, 6)
-    val endOfWeekMillis = calendar.apply {
-        set(Calendar.HOUR_OF_DAY, 23)
-        set(Calendar.MINUTE, 59)
-        set(Calendar.SECOND, 59)
-    }.timeInMillis
-    val endDateStr = SimpleDateFormat("MM.dd", Locale.getDefault()).format(calendar.time)
+    for (i in 0..6) {
+        val cal = Calendar.getInstance().apply {
+            firstDayOfWeek = Calendar.MONDAY
+            add(Calendar.WEEK_OF_YEAR, weekOffset)
+            set(Calendar.DAY_OF_WEEK, if (i == 6) Calendar.SUNDAY else i + 2)
+        }
+        val y = cal.get(Calendar.YEAR)
+        val m = cal.get(Calendar.MONTH) + 1
+        val d = cal.get(Calendar.DAY_OF_MONTH)
 
-    val weeklySteps = IntArray(7) { 0 }
-    val thisWeekWalks = walks.filter { it.timestamp in startOfWeekMillis..endOfWeekMillis }
-
-    thisWeekWalks.forEach { record ->
-        val recordCal = Calendar.getInstance().apply { timeInMillis = record.timestamp }
-        val dayOfWeek = recordCal.get(Calendar.DAY_OF_WEEK)
-        val mappedIndex = if (dayOfWeek == Calendar.SUNDAY) 6 else dayOfWeek - 2
-        weeklySteps[mappedIndex] += record.steps
+        val record = dailyWalks.find { it.year == y && it.month == m && it.day == d }
+        weeklySteps[i] = record?.steps ?: 0
     }
 
     if (weekOffset == 0) {
@@ -409,7 +458,6 @@ fun WeeklyStepChartSection(
         val todayDayOfWeek = currentCal.get(Calendar.DAY_OF_WEEK)
         val todayIndex = if (todayDayOfWeek == Calendar.SUNDAY) 6 else todayDayOfWeek - 2
 
-        // 만보계가 DB기록보다 크면 todaySteps로 교체
         if (todaySteps > weeklySteps[todayIndex]) {
             weeklySteps[todayIndex] = todaySteps
         }
@@ -472,44 +520,55 @@ fun WeeklyStepChartSection(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            val days = listOf("월", "화", "수", "목", "금", "토", "일")
             val targetSteps = 8000
             val maxSteps = maxOf(targetSteps, weeklySteps.maxOrNull() ?: 0)
 
-            Box(modifier = Modifier.fillMaxWidth().height(180.dp)) {
-                val targetFraction = 1f - (targetSteps.toFloat() / maxSteps.toFloat())
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val yPos = size.height * targetFraction
-                    drawLine(
-                        color = Color.LightGray,
-                        start = Offset(0f, yPos),
-                        end = Offset(size.width, yPos),
-                        strokeWidth = 2f,
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
-                    )
-                }
+            Column(modifier = Modifier.fillMaxWidth()) {
 
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    weeklySteps.forEachIndexed { index, steps ->
-                        val fraction = if (maxSteps > 0) (steps.toFloat() / maxSteps.toFloat()) else 0f
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Bottom,
-                            modifier = Modifier.fillMaxHeight()
-                        ) {
+                Box(modifier = Modifier.fillMaxWidth().height(150.dp)) {
+                    val targetFraction = 1f - (targetSteps.toFloat() / maxSteps.toFloat())
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val yPos = size.height * targetFraction
+                        drawLine(
+                            color = Color.LightGray,
+                            start = Offset(0f, yPos),
+                            end = Offset(size.width, yPos),
+                            strokeWidth = 2f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        weeklySteps.forEach { steps ->
+                            val fraction = if (maxSteps > 0) (steps.toFloat() / maxSteps.toFloat()) else 0f
                             Box(
                                 modifier = Modifier
                                     .width(16.dp)
                                     .fillMaxHeight(fraction)
                                     .background(Color(0xFF00838F), RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(days[index], fontSize = 12.sp, color = Color.Gray)
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    days.forEach { day ->
+                        Text(
+                            text = day,
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.width(16.dp), // 막대기와 동일한 너비를 주어 정확히 가운데 정렬
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
                     }
                 }
             }
@@ -537,7 +596,7 @@ fun WalkingHistorySection(walks: List<WalkingRecordEntity>, onRecordClick: (Walk
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Text(
-                    text = "해당 월에 저장된 걷기 기록이 없습니다.",
+                    text = "해당 일에 저장된 걷기 상세 기록이 없습니다.",
                     fontSize = 14.sp,
                     color = Color.Gray,
                     modifier = Modifier.padding(20.dp)

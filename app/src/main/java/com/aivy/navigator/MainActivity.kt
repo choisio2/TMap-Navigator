@@ -17,7 +17,6 @@ import com.aivy.navigator.walking.WalkingReadyActivity
 
 class MainActivity : AppCompatActivity() {
 
-    // 권한 요청 결과를 처리하는 런처 (
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->

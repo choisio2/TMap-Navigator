@@ -85,6 +85,7 @@ class WalkingService : Service(), SensorEventListener {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { loc ->
                     val broadcastIntent = Intent(ACTION_WALK_LOCATION).apply {
+                        setPackage(packageName)
                         putExtra(EXTRA_LATITUDE, loc.latitude)
                         putExtra(EXTRA_LONGITUDE, loc.longitude)
                     }
@@ -99,6 +100,7 @@ class WalkingService : Service(), SensorEventListener {
         if (event?.sensor?.type == Sensor.TYPE_STEP_COUNTER) {
             val steps = event.values[0].toInt()
             val broadcastIntent = Intent(ACTION_WALK_STEPS).apply {
+                setPackage(packageName)
                 putExtra(EXTRA_STEPS, steps)
             }
             sendBroadcast(broadcastIntent)

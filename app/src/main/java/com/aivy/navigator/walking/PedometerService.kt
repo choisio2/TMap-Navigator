@@ -16,9 +16,8 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.aivy.navigator.MainActivity
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.aivy.navigator.database.AppDatabase
+import com.aivy.navigator.database.entity.DailyStepEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,13 +25,17 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 class PedometerService : Service(), SensorEventListener {
 
     private lateinit var sensorManager: SensorManager
     private var stepSensor: Sensor? = null
     private lateinit var notificationManager: NotificationManager
-    // 팝업 스와이프해도 주기적으로 다시 띄우도록
+    // 팝업 스와이프해도 주기적으로 다시 띄우기, DB 작업도 처리할 코루틴 스코프
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
 
     companion object {
@@ -86,7 +89,7 @@ class PedometerService : Service(), SensorEventListener {
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
-    // 걸음 수 변화량을 계산하고 누적
+    // 걸음 수 변화량을 계산하고 누적 (DB 동기화 포함)
     private fun calculateAndUpdateSteps(currentSensorSteps: Int): Int {
         val prefs = getSharedPreferences("pedometer_prefs", Context.MODE_PRIVATE)
         val todayDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
@@ -111,9 +114,26 @@ class PedometerService : Service(), SensorEventListener {
         val delta = todaySteps - previousTodaySteps
 
         if (delta > 0) {
+            // SharedPreferences 업데이트 (UI 및 실시간 팝업용)
             prefs.edit()
                 .putInt("today_total_steps", todaySteps)
                 .apply()
+
+            // Room DB 업데이트
+            serviceScope.launch {
+                val cal = Calendar.getInstance()
+                val y = cal.get(Calendar.YEAR)
+                val m = cal.get(Calendar.MONTH) + 1
+                val d = cal.get(Calendar.DAY_OF_MONTH)
+
+                val dao = AppDatabase.getDatabase(applicationContext).dailyStepDao()
+
+                val updatedCount = dao.updateSteps(y, m, d, todaySteps)
+
+                if (updatedCount == 0) {
+                    dao.insertDailyStep(DailyStepEntity(year = y, month = m, day = d, steps = todaySteps))
+                }
+            }
         }
 
         return todaySteps
