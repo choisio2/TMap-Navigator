@@ -217,7 +217,7 @@ fun WalkingReadyScreen(
             )
 
             // 주간 걸음 수 차트
-            WeeklyStepChartSection(walks = walks, weekOffset = weekOffset, onWeekChange = { weekOffset += it })
+            WeeklyStepChartSection(walks = walks, todaySteps = todaySteps, weekOffset = weekOffset, onWeekChange = { weekOffset += it })
 
             // 년/월 필터링 드롭다운 UI
             Row(
@@ -367,7 +367,12 @@ fun TodayWalkingCard(todaySteps: Int, onStartClick: () -> Unit) {
 // 주간 걸음 수 막대그래프 컴포넌트
 // ==========================================
 @Composable
-fun WeeklyStepChartSection(walks: List<WalkingRecordEntity>, weekOffset: Int, onWeekChange: (Int) -> Unit) {
+fun WeeklyStepChartSection(
+    walks: List<WalkingRecordEntity>,
+    todaySteps: Int, // 💡 추가됨: 만보기의 오늘 총 걸음 수를 받아옵니다.
+    weekOffset: Int,
+    onWeekChange: (Int) -> Unit
+) {
     val calendar = Calendar.getInstance().apply {
         firstDayOfWeek = Calendar.MONDAY
         add(Calendar.WEEK_OF_YEAR, weekOffset)
@@ -397,6 +402,17 @@ fun WeeklyStepChartSection(walks: List<WalkingRecordEntity>, weekOffset: Int, on
         val dayOfWeek = recordCal.get(Calendar.DAY_OF_WEEK)
         val mappedIndex = if (dayOfWeek == Calendar.SUNDAY) 6 else dayOfWeek - 2
         weeklySteps[mappedIndex] += record.steps
+    }
+
+    if (weekOffset == 0) {
+        val currentCal = Calendar.getInstance()
+        val todayDayOfWeek = currentCal.get(Calendar.DAY_OF_WEEK)
+        val todayIndex = if (todayDayOfWeek == Calendar.SUNDAY) 6 else todayDayOfWeek - 2
+
+        // 만보계가 DB기록보다 크면 todaySteps로 교체
+        if (todaySteps > weeklySteps[todayIndex]) {
+            weeklySteps[todayIndex] = todaySteps
+        }
     }
 
     val totalStepsThisWeek = weeklySteps.sum()
