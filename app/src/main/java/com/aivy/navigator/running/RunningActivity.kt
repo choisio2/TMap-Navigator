@@ -1,4 +1,4 @@
-package com.aivy.navigator
+package com.aivy.navigator.running
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -23,7 +23,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,7 +33,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,6 +48,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.aivy.navigator.BuildConfig
+import com.aivy.navigator.R
 import com.google.android.gms.location.*
 import com.skt.Tmap.TMapMarkerItem
 import com.skt.Tmap.TMapPoint
@@ -57,22 +57,26 @@ import com.skt.Tmap.TMapPolyLine
 import com.skt.Tmap.TMapView
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.stateIn
 import org.xmlpull.v1.XmlPullParser
 import java.util.*
 import kotlin.math.abs
 import kotlin.math.roundToInt
-
-// Database Imports
-import com.aivy.navigator.data.database.AppDatabase
-import com.aivy.navigator.data.database.SavedCourseEntity
-import com.aivy.navigator.data.database.WorkoutRecordEntity
-
-// ==========================================
-// 기본 데이터 모델
-// ==========================================
+import com.aivy.navigator.database.AppDatabase
+import com.aivy.navigator.database.entity.SavedCourseEntity
+import com.aivy.navigator.database.entity.SplitRecordEntity
+import com.aivy.navigator.database.entity.WorkoutRecordEntity
+import com.aivy.navigator.database.entity.WorkoutWithSplits
 
 data class CourseInfo(val resId: Int, val name: String)
+
+// 러닝 진행 중 메모리에서 스플릿 정보를 임시로 담아둘 데이터 클래스
+data class SplitTempData(
+    val kmIndex: Int,
+    val timeElapsedSec: Long,
+    val cumulativeTimeSec: Long
+)
 
 // 앱 내 정적 코스 리스트
 val ALL_AVAILABLE_COURSES = listOf(
@@ -82,10 +86,6 @@ val ALL_AVAILABLE_COURSES = listOf(
     CourseInfo(R.raw.rudolph_run, "🦌 루돌프런"),
     CourseInfo(R.raw.seoul_half_marathon, "🏃 MBN 서울 마라톤")
 )
-
-// ==========================================
-// ViewModel 및 상태 관리 클래스
-// ==========================================
 
 enum class RunState { INIT, COUNTDOWN, RUNNING, PAUSED, STOPPED, FINISHED }
 
@@ -99,10 +99,12 @@ class RunningViewModel(application: Application) : AndroidViewModel(application)
     val importedRoute = mutableStateListOf<TMapPoint>()
 
     // 구간별 스플릿 타임 계산용 변수
-    val kmSplits = mutableStateListOf<Long>()
+    val kmSplits = mutableStateListOf<SplitTempData>()
     private var lastSplitTime = 0L
     private var currentKmTarget = 1
-    var lastWorkoutRecord by mutableStateOf<WorkoutRecordEntity?>(null)
+
+    // 조인된 데이터 모델 사용
+    var lastWorkoutRecord by mutableStateOf<WorkoutWithSplits?>(null)
 
     private var timerJob: Job? = null
     private var lastLocation: Location? = null
@@ -204,24 +206,77 @@ class RunningViewModel(application: Application) : AndroidViewModel(application)
         context.stopService(serviceIntent)
 
         viewModelScope.launch(Dispatchers.IO) {
-            // 이전 세션 기록 조회
-            lastWorkoutRecord = runningDao.getLastWorkout()
+            // 10초 미만 운동 시 저장 안 되도록
+            if (timeElapsed < 10) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "10초 미만의 러닝은 기록되지 않습니다.", Toast.LENGTH_SHORT).show()
+                    runState = RunState.FINISHED
+                }
+                return@launch
+            }
 
-            // 신규 기록 저장
-            val calories = calculateCalories()
-            val newRecord = WorkoutRecordEntity(
-                distance = distance,
-                timeElapsed = timeElapsed,
-                calories = calories,
-                paceStr = calculatePace(),
-                splitsCsv = kmSplits.joinToString(",")
+            // 1km 미만의 거리도 마지막 구간으로 저장
+            val remainderDist = distance - (currentKmTarget - 1)
+            if (remainderDist > 0.01) { // 10m 이상 이동했다면 마지막 구간으로 저장
+                val splitDuration = timeElapsed - lastSplitTime
+                kmSplits.add(SplitTempData(currentKmTarget, splitDuration, timeElapsed))
+            }
+
+            // 이전 기록을 비교하기 위해 불러오기
+            lastWorkoutRecord = runningDao.getAllWorkoutsWithSplits().firstOrNull()?.firstOrNull()
+
+            // 부모 운동 기록 엔티티 생성
+            val newWorkout = WorkoutRecordEntity(
+                totalDistance = distance,
+                totalTimeElapsed = timeElapsed,
+                calories = calculateCalories(context),
+                averagePaceStr = calculatePace()
             )
-            runningDao.insertWorkout(newRecord)
+
+            // 자식 구간 기록 엔티티 생성
+            val splitEntities = kmSplits.map {
+                SplitRecordEntity(
+                    kmIndex = it.kmIndex,
+                    timeElapsedSec = it.timeElapsedSec,
+                    cumulativeTimeSec = it.cumulativeTimeSec
+                )
+            }
+
+            // 트랜잭션을 통해 부모와 자식 데이터를 한 번에 저장
+            runningDao.insertWorkoutWithSplits(newWorkout, splitEntities)
 
             withContext(Dispatchers.Main) {
                 runState = RunState.FINISHED
             }
         }
+    }
+
+    // 내부에서 체중을 불러와 MET 기반으로 계산
+    fun calculateCalories(context: Context): Int {
+        if (distance <= 0.0 || timeElapsed <= 0L) return 0
+
+        val sharedPref = context.getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
+        val weightKg = sharedPref.getFloat("user_weight", 65f).toDouble()
+
+        val durationMin = timeElapsed / 60.0
+        val paceMinPerKm = durationMin / distance
+
+        // MET 산출식
+        val met = when {
+            paceMinPerKm >= 15.0 -> 2.8
+            paceMinPerKm >= 13.0 -> 3.0
+            paceMinPerKm >= 11.0 -> 3.5
+            paceMinPerKm >= 9.5  -> 5.0
+            paceMinPerKm >= 8.0  -> 6.0
+            paceMinPerKm >= 7.0  -> 8.3
+            paceMinPerKm >= 6.0  -> 9.8
+            paceMinPerKm >= 5.0  -> 11.0
+            paceMinPerKm >= 4.5  -> 11.8
+            else -> 12.5
+        }
+        val durationHour = durationMin / 60.0
+
+        return (met * weightKg * durationHour).roundToInt()
     }
 
     private fun startTimer() {
@@ -237,21 +292,29 @@ class RunningViewModel(application: Application) : AndroidViewModel(application)
     // 위치 업데이트 및 거리 계산
     fun updateLocation(newLoc: Location) {
         if (runState != RunState.RUNNING) return
-        val newPoint = TMapPoint(newLoc.latitude, newLoc.longitude)
-        pathPoints.add(newPoint)
 
         lastLocation?.let { last ->
             val distMeters = last.distanceTo(newLoc)
+
+            // GPS 스무딩 처리
+            if (distMeters < 3.0) {
+                return
+            }
+
             distance += (distMeters / 1000.0)
 
-            // 지정된 km 구간 도달 시 스플릿 타임 기록
+            // 지정된 km 구간 도달 시 스플릿 타임 및 누적 시간 기록
             if (distance >= currentKmTarget) {
                 val splitDuration = timeElapsed - lastSplitTime
-                kmSplits.add(splitDuration)
+                kmSplits.add(SplitTempData(currentKmTarget, splitDuration, timeElapsed))
                 lastSplitTime = timeElapsed
                 currentKmTarget++
             }
         }
+
+        // 필터를 통과한 유효한 위치만 경로에 추가
+        val newPoint = TMapPoint(newLoc.latitude, newLoc.longitude)
+        pathPoints.add(newPoint)
         lastLocation = newLoc
     }
 
@@ -262,38 +325,6 @@ class RunningViewModel(application: Application) : AndroidViewModel(application)
         val minutes = totalMinutes.toInt()
         val secs = ((totalMinutes - minutes) * 60).toInt()
         return String.format("%d'%02d\"", minutes, secs)
-    }
-
-    // 성인 평균 체중(65kg) 기준 칼로리 소모량 계산
-    // TODO: 추후에 개인 정보 받아서 계산하는 로직으로 수정하기
-    fun calculateCalories(): Int {
-        if (distance <= 0.0 || timeElapsed <= 0L) return 0
-
-        val durationMin = timeElapsed / 60.0
-        val paceMinPerKm = durationMin / distance
-        val weightKg = 65.0
-
-        val met = getMetByPace(paceMinPerKm)
-        val durationHour = durationMin / 60.0
-
-        // 공식: Kcal = MET * 체중(kg) * 시간(h)
-        return (met * weightKg * durationHour).roundToInt()
-    }
-
-    // 페이스 구간별 MET(대사당량) 값 반환
-    private fun getMetByPace(paceMinPerKm: Double): Double {
-        return when {
-            paceMinPerKm >= 15.0 -> 2.8   // 매우 느린 걷기
-            paceMinPerKm >= 13.0 -> 3.0   // 느린 걷기
-            paceMinPerKm >= 11.0 -> 3.5   // 보통 걷기
-            paceMinPerKm >= 9.5  -> 5.0   // 빠른 걷기
-            paceMinPerKm >= 8.0  -> 6.0   // 가벼운 조깅
-            paceMinPerKm >= 7.0  -> 8.3   // 조깅
-            paceMinPerKm >= 6.0  -> 9.8   // 보통 러닝 (약 10km/h)
-            paceMinPerKm >= 5.0  -> 11.0  // 빠른 러닝 (약 12km/h)
-            paceMinPerKm >= 4.5  -> 11.8  // 아주 빠른 러닝
-            else -> 12.5                  // 완전 러닝 속도
-        }
     }
 
     override fun onCleared() {
@@ -327,7 +358,7 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
         myLocationBaseBitmap = getBitmapFromVectorDrawable(R.drawable.ic_my_location_dot)
@@ -491,9 +522,6 @@ class RunningActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 }
 
-// ==========================================
-// Compose UI
-// ==========================================
 
 @Composable
 fun RunningScreen(
@@ -529,7 +557,7 @@ fun RunningScreen(
             update = { view ->
                 view.removeAllTMapPolyLine()
 
-                // 가이드 경로 
+                // 가이드 경로
                 if (viewModel.importedRoute.isNotEmpty()) {
                     val guideLine = TMapPolyLine().apply {
                         lineColor = AndroidColor.parseColor("#802196F3")
@@ -542,7 +570,7 @@ fun RunningScreen(
                 // 사용자가 이동한 경로
                 if (viewModel.pathPoints.size >= 2) {
                     val myLine = TMapPolyLine().apply {
-                        lineColor = AndroidColor.parseColor("#FF1976D2") // 초록색으로 변경
+                        lineColor = AndroidColor.parseColor("#FF1976D2")
                         lineWidth = 15f
                     }
                     viewModel.pathPoints.forEach { myLine.addLinePoint(it) }
@@ -793,6 +821,7 @@ fun RunningDataItem(label: String, value: String) {
 // ==========================================
 @Composable
 fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
+    val context = LocalContext.current
     val lastSession = viewModel.lastWorkoutRecord
 
     LazyColumn(
@@ -829,7 +858,7 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                     Spacer(modifier = Modifier.height(24.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
                         SummaryItem("평균", viewModel.calculatePace(), "")
-                        SummaryItem("칼로리", viewModel.calculateCalories().toString(), "kcal")
+                        SummaryItem("칼로리", viewModel.calculateCalories(context).toString(), "kcal")
                     }
                 }
             }
@@ -850,17 +879,24 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                     if (lastSession == null) {
                         Text("지난 기록이 없습니다.", fontSize = 14.sp, color = Color.DarkGray)
                     } else {
+                        // 변경된 엔티티 속성값 매핑 적용
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            val distDiff = viewModel.distance - lastSession.distance
-                            val calDiff = viewModel.calculateCalories() - lastSession.calories
+                            val distDiff = viewModel.distance - lastSession.workout.totalDistance
+                            val calDiff = viewModel.calculateCalories(context) - lastSession.workout.calories
 
                             val currentPaceTotalSec = if (viewModel.distance > 0) viewModel.timeElapsed / viewModel.distance else 0.0
-                            val lastPaceTotalSec = if (lastSession.distance > 0) lastSession.timeElapsed.toDouble() / lastSession.distance else 0.0
-                            val paceDiff = currentPaceTotalSec - lastPaceTotalSec
+                            val lastPaceTotalSec = if (lastSession.workout.totalDistance > 0) lastSession.workout.totalTimeElapsed.toDouble() / lastSession.workout.totalDistance else 0.0
+                            val paceDiffSec = currentPaceTotalSec - lastPaceTotalSec
+
+                            val absPaceDiff = abs(paceDiffSec).toInt()
+                            val diffMins = absPaceDiff / 60
+                            val diffSecs = absPaceDiff % 60
+                            val sign = if (paceDiffSec >= 0) "+" else "-"
+                            val paceDiffStr = String.format("%s%d'%02d\"", sign, diffMins, diffSecs)
 
                             DiffBadge("거리", String.format("%+.1fkm", distDiff), if(distDiff >= 0) Color(0xFF4CAF50) else Color(0xFF1976D2), Modifier.weight(1f))
                             DiffBadge("칼로리", String.format("%+dkcal", calDiff), if(calDiff >= 0) Color(0xFF4CAF50) else Color(0xFF1976D2), Modifier.weight(1f))
-                            DiffBadge("페이스", String.format("%+d초", paceDiff.toInt()), if(paceDiff <= 0) Color(0xFF4CAF50) else Color(0xFF1976D2), Modifier.weight(1f))
+                            DiffBadge("페이스", paceDiffStr, if(paceDiffSec <= 0) Color(0xFF4CAF50) else Color(0xFF1976D2), Modifier.weight(1f))
                         }
                     }
                 }
@@ -876,28 +912,50 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    Text("km별 스플릿", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Text("구간별 페이스", fontSize = 14.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
 
                     if (viewModel.kmSplits.isEmpty()) {
                         Text("1km 미만의 기록입니다.", fontSize = 14.sp, color = Color.DarkGray)
                     } else {
-                        val maxTime = viewModel.kmSplits.maxOrNull() ?: 1L
-                        viewModel.kmSplits.forEachIndexed { index, timeSec ->
+                        // 각 구간별 페이스 계산
+                        val paceDataList = viewModel.kmSplits.mapIndexed { index, split ->
+                            val splitSecs = split.timeElapsedSec
+                            val remainder = viewModel.distance - index
+                            val isLast = index == viewModel.kmSplits.size - 1
+
+                            // 마지막 구간이 1km 미만일 경우 실제 뛴 자투리 거리 계산
+                            val splitDist = if (isLast && remainder > 0.0 && remainder < 1.0) {
+                                remainder
+                            } else {
+                                1.0
+                            }
+
+                            val paceSecsPerKm = if (splitDist > 0) (splitSecs / splitDist).toLong() else 0L
+
+                            Triple(split, splitDist, paceSecsPerKm)
+                        }
+
+                        val maxPace = paceDataList.maxOfOrNull { it.third } ?: 1L
+
+                        paceDataList.forEachIndexed { index, (split, splitDist, paceSecs) ->
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("${index + 1}km", fontSize = 14.sp, modifier = Modifier.width(40.dp))
+                                val distanceLabel = if (splitDist < 1.0) String.format("%.2fkm", viewModel.distance) else "${split.kmIndex}km"
+
+                                Text(distanceLabel, fontSize = 14.sp, modifier = Modifier.width(48.dp))
 
                                 Box(modifier = Modifier.weight(1f).height(16.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFFE3F2FD))) {
-                                    val fraction = (timeSec.toFloat() / maxTime).coerceIn(0f, 1f)
+                                    val fraction = (paceSecs.toFloat() / maxPace.toFloat()).coerceIn(0f, 1f)
                                     Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(fraction).background(Color(0xFF64B5F6)))
                                 }
 
                                 Spacer(modifier = Modifier.width(8.dp))
-                                val mins = timeSec / 60
-                                val secs = timeSec % 60
+
+                                val mins = paceSecs / 60
+                                val secs = paceSecs % 60
                                 Text(String.format("%d'%02d\"", mins, secs), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
@@ -916,17 +974,6 @@ fun WorkoutSummaryScreen(viewModel: RunningViewModel, onGoHome: () -> Unit) {
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF102841)),
                     shape = RoundedCornerShape(12.dp)
                 ) { Text("홈으로", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-
-                // TODO: 공유기능 구현
-                OutlinedButton(
-                    onClick = { /* 공유 기능 연동 가능 */ },
-                    modifier = Modifier.weight(1f).height(56.dp),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.Black)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("공유", fontSize = 16.sp, color = Color.Black, fontWeight = FontWeight.Bold)
-                }
             }
             Spacer(modifier = Modifier.height(24.dp))
         }

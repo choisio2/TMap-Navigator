@@ -65,5 +65,19 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/btnTmap" />
 
+    <Button
+        android:id="@+id/btnWalking"
+        android:layout_width="220dp"
+        android:layout_height="55dp"
+        app:backgroundTint="@null"
+        android:backgroundTint="#7A4AC3"
+        android:text="Walking"
+        android:textColor="@color/white"
+        android:textSize="15sp"
+        android:layout_marginTop="20dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/btnRunning" />
+
 
 </androidx.constraintlayout.widget.ConstraintLayout>
